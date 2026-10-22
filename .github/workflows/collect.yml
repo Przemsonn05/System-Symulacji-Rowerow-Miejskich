@@ -2,15 +2,16 @@ name: Zbieranie danych Veturilo
 
 on:
   schedule:
-    - cron: "3 * * * *"   # co godzine; kazde uruchomienie mierzy co 5 min przez 57 min
+    - cron: "3 * * * *"   # zabezpieczenie: wznawia lancuch, gdyby sie przerwal
   workflow_dispatch:       # reczne uruchomienie z zakladki Actions
     inputs:
       iterations:
-        description: "Liczba pomiarow (1 = szybki test, 0 = pelna godzina jak w harmonogramie)"
+        description: "Liczba pomiarow (1 = szybki test, 0 = pelna godzina + kolejne uruchomienia)"
         default: "1"
 
 permissions:
   contents: write
+  actions: write   # potrzebne, zeby run mogl uruchomic kolejny run
 
 concurrency:
   group: collect-data
@@ -28,17 +29,15 @@ jobs:
           python-version: "3.12"
 
       - name: Zbieranie danych
+        id: collect
         env:
-          # Harmonogram (i reczne "0"): mierz przez 57 min. GitHub zwykle startuje
-          # z opoznieniem ~10 min, wiec run konczy sie mniej wiecej wtedy, gdy
-          # nastepny (czekajacy w kolejce dzieki concurrency) moze ruszyc - bez dziur.
           ITERATIONS: ${{ github.event.inputs.iterations || '1' }}
           DURATION_MIN: ${{ (github.event_name == 'schedule' || github.event.inputs.iterations == '0') && '57' || '0' }}
           INTERVAL_SEC: "300"
         run: python collect.py
 
       - name: Zapis danych do repozytorium
-        if: always()
+        if: ${{ !cancelled() }}
         run: |
           if [ ! -d data ]; then
             echo "Brak folderu data - nic do zapisania (sprawdz log kroku 'Zbieranie danych')"
@@ -56,3 +55,18 @@ jobs:
             git pull --rebase && git push && break
             sleep 10
           done
+
+      # Harmonogram GitHuba bywa pomijany, wiec kazdy pelny run sam uruchamia nastepny.
+      # workflow_dispatch wywolany przez GITHUB_TOKEN tworzy nowy run (wyjatek w regulach GitHuba).
+      - name: Uruchomienie kolejnego pomiaru
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event.inputs.iterations == '0') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          if [ "${{ steps.collect.outcome }}" != "success" ]; then
+            echo "Zbieranie nieudane - czekam 10 min przed kolejna proba"
+            sleep 600
+          fi
+          gh workflow run collect.yml --ref "${{ github.ref_name }}" -f iterations=0
+          echo "Uruchomiono kolejny run"
