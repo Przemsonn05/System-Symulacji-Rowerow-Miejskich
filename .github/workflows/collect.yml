@@ -2,11 +2,11 @@ name: Zbieranie danych Veturilo
 
 on:
   schedule:
-    - cron: "3 * * * *"   # co godzine; w kazdym uruchomieniu 11 pomiarow co 5 min
+    - cron: "3 * * * *"   # co godzine; kazde uruchomienie mierzy co 5 min przez 57 min
   workflow_dispatch:       # reczne uruchomienie z zakladki Actions
     inputs:
       iterations:
-        description: "Liczba pomiarow (1 = szybki test, 11 = pelna godzina)"
+        description: "Liczba pomiarow (1 = szybki test, 0 = pelna godzina jak w harmonogramie)"
         default: "1"
 
 permissions:
@@ -29,7 +29,11 @@ jobs:
 
       - name: Zbieranie danych
         env:
-          ITERATIONS: ${{ github.event.inputs.iterations || '11' }}
+          # Harmonogram (i reczne "0"): mierz przez 57 min. GitHub zwykle startuje
+          # z opoznieniem ~10 min, wiec run konczy sie mniej wiecej wtedy, gdy
+          # nastepny (czekajacy w kolejce dzieki concurrency) moze ruszyc - bez dziur.
+          ITERATIONS: ${{ github.event.inputs.iterations || '1' }}
+          DURATION_MIN: ${{ (github.event_name == 'schedule' || github.event.inputs.iterations == '0') && '57' || '0' }}
           INTERVAL_SEC: "300"
         run: python collect.py
 
