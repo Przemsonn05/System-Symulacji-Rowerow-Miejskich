@@ -4,6 +4,10 @@ on:
   schedule:
     - cron: "3 * * * *"   # co godzine; w kazdym uruchomieniu 11 pomiarow co 5 min
   workflow_dispatch:       # reczne uruchomienie z zakladki Actions
+    inputs:
+      iterations:
+        description: "Liczba pomiarow (1 = szybki test, 11 = pelna godzina)"
+        default: "1"
 
 permissions:
   contents: write
@@ -25,13 +29,17 @@ jobs:
 
       - name: Zbieranie danych
         env:
-          ITERATIONS: "11"
+          ITERATIONS: ${{ github.event.inputs.iterations || '11' }}
           INTERVAL_SEC: "300"
         run: python collect.py
 
       - name: Zapis danych do repozytorium
         if: always()
         run: |
+          if [ ! -d data ]; then
+            echo "Brak folderu data - nic do zapisania (sprawdz log kroku 'Zbieranie danych')"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add data
