@@ -34,6 +34,9 @@ jobs:
           ITERATIONS: ${{ github.event.inputs.iterations || '1' }}
           DURATION_MIN: ${{ (github.event_name == 'schedule' || github.event.inputs.iterations == '0') && '57' || '0' }}
           INTERVAL_SEC: "300"
+          # Opcjonalne - bez tych secrets dane o ruchu sa po prostu pomijane.
+          WARSAW_API_KEY: ${{ secrets.WARSAW_API_KEY }}
+          TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
         run: python collect.py
 
       - name: Zapis danych do repozytorium

@@ -6,7 +6,10 @@ Co robi:
   data/status/RRRR-MM-DD.jsonl.gz (jeden plik na dzien, UTC),
 - zapisuje rowery stojace poza stacjami do data/loose/RRRR-MM-DD.jsonl.gz,
 - raz dziennie zapisuje informacje o stacjach (lokalizacje, pojemnosci)
-  do data/info/RRRR-MM-DD.json.gz.
+  do data/info/RRRR-MM-DD.json.gz,
+- opcjonalnie (gdy ustawione sa klucze API) zbiera dane o ruchu drogowym,
+  ktorych nie da sie pobrac wstecz: predkosci autobusow ZTM (data/bus_speed),
+  predkosci na arteriach i utrudnienia z TomTom (data/traffic_flow, data/incidents).
 
 Zrodla danych (sprawdzane po kolei, uzywane jest pierwsze dzialajace):
 1. oficjalny feed Nextbike "nextbike-live.json" dla Warszawy (city=812) -
@@ -30,6 +33,10 @@ Zmienne srodowiskowe:
   DURATION_MIN  jesli > 0: zamiast ITERATIONS mierz az do uplywu tylu minut
   INTERVAL_SEC  odstep miedzy pomiarami w sekundach (domyslnie 300)
   OUT_DIR       katalog na dane (domyslnie data)
+  WARSAW_API_KEY  klucz api.um.warszawa.pl - wlacza predkosci autobusow (data/bus_speed)
+  TOMTOM_API_KEY  klucz TomTom - wlacza predkosci na arteriach (data/traffic_flow)
+                  i utrudnienia w ruchu (data/incidents)
+  TOMTOM_EVERY    co ktory pomiar pytac TomTom (domyslnie 3 = co 15 min)
 """
 
 import datetime as dt
@@ -38,7 +45,9 @@ import json
 import os
 import sys
 import time
+import math
 import urllib.error
+import urllib.parse
 import urllib.request
 
 OUT_DIR = os.environ.get("OUT_DIR", "data")
@@ -300,6 +309,243 @@ def save_status(src):
     return day
 
 
+# ---------------------------------------------------------------------------
+# Ruch drogowy - dane, ktorych nie da sie pobrac wstecz, wiec zbieramy je razem
+# z Veturilo. Kazde zrodlo wlacza sie tylko, gdy ustawiony jest jego klucz API.
+# Bledy tych zrodel nigdy nie przerywaja zbierania danych o rowerach.
+# ---------------------------------------------------------------------------
+
+WARSAW_API_KEY = os.environ.get("WARSAW_API_KEY", "").strip()
+TOMTOM_API_KEY = os.environ.get("TOMTOM_API_KEY", "").strip()
+# Co ktory pomiar pytac TomTom (3 x 5 min = co 15 min). Darmowy plan ma limit
+# zapytan dziennie: 10 punktow x 96 = 960 zapytan + 96 o utrudnienia.
+TOMTOM_EVERY = int(os.environ.get("TOMTOM_EVERY", "3"))
+EXTRA_BUDGET_SEC = 90  # maks. czas na dodatkowe zrodla w jednym pomiarze
+
+ZTM_URL = (
+    "https://api.um.warszawa.pl/api/action/busestrams_get/"
+    "?resource_id=f2e5503e-927d-4ad3-9500-4ab9e55deb59&type=1&apikey={key}"
+)
+# Siatka ~550 x 550 m, w ktorej usredniamy predkosc autobusow.
+CELL_LAT, CELL_LON = 0.005, 0.008
+# Punkty pomiaru predkosci TomTom: glowne arterie, przy ktorych stoja stacje.
+# TomTom dopasowuje punkt do najblizszego odcinka drogi (zapisujemy jego poczatek i koniec).
+TOMTOM_POINTS = [
+    ("jerozolimskie_rondo_de_gaulle", 52.2316, 21.0245),
+    ("marszalkowska_pl_konstytucji", 52.2215, 21.0155),
+    ("niepodleglosci_pole_mokotowskie", 52.2120, 21.0060),
+    ("pulawska_mokotow", 52.1930, 21.0230),
+    ("wislostrada_centrum", 52.2420, 21.0290),
+    ("trasa_lazienkowska", 52.2190, 21.0400),
+    ("solidarnosci_wola", 52.2440, 20.9980),
+    ("prymasa_tysiaclecia", 52.2350, 20.9580),
+    ("grochowska_praga", 52.2440, 21.0890),
+    ("modlinska_bialoleka", 52.3000, 20.9900),
+]
+WARSAW_BBOX = "20.85,52.10,21.27,52.37"  # minLon,minLat,maxLon,maxLat
+TOMTOM_FLOW_URL = (
+    "https://api.tomtom.com/traffic/services/4/flowSegmentData/absolute/10/json"
+    "?point={lat},{lon}&unit=KMPH&key={key}"
+)
+TOMTOM_INCIDENTS_URL = (
+    "https://api.tomtom.com/traffic/services/5/incidentDetails"
+    "?bbox={bbox}&fields={fields}&language=pl-PL&timeValidityFilter=present&key={key}"
+)
+TOMTOM_INCIDENT_FIELDS = (
+    "{incidents{type,geometry{type,coordinates},properties{id,iconCategory,"
+    "magnitudeOfDelay,events{description},startTime,endTime,from,to,length,delay}}}"
+)
+
+_prev_buses = {}  # numer pojazdu -> (czas GPS, lat, lon) z poprzedniego pomiaru
+
+
+def fetch_keyed(url, key):
+    """fetch_json bez ponawiania i bez klucza API w komunikatach bledow."""
+    try:
+        return fetch_json(url, retries=1, quiet=True)
+    except RuntimeError as e:
+        # Komunikat ma postac "<url>: <blad>" - ucinamy parametry adresu (z kluczem).
+        where, _, err = str(e).replace(key, "***").partition(": ")
+        raise RuntimeError(f"{where.split('?')[0]}: {err}") from None
+
+
+def haversine_km(lat1, lon1, lat2, lon2):
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    a = (
+        math.sin((p2 - p1) / 2) ** 2
+        + math.cos(p1) * math.cos(p2) * math.sin(math.radians(lon2 - lon1) / 2) ** 2
+    )
+    return 6371 * 2 * math.asin(math.sqrt(a))
+
+
+def bus_speeds(prev, buses):
+    """Predkosci autobusow miedzy dwoma pomiarami, usrednione w komorkach siatki.
+
+    Zwraca (rekordy komorek, aktualne pozycje). Predkosc liczona z czasu GPS
+    pojazdu, wiec obejmuje tez postoje na przystankach i swiatlach - to miara
+    plynnosci ruchu w danej okolicy, a nie predkosc chwilowa.
+    """
+    cur = {}
+    for b in buses:
+        try:
+            t = dt.datetime.strptime(b["Time"], "%Y-%m-%d %H:%M:%S")
+            cur[str(b["VehicleNumber"])] = (t, float(b["Lat"]), float(b["Lon"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not cur:
+        return [], cur
+    # Pojazdy, ktore od dawna nie wysylaja pozycji (zajezdnia, awaria GPS), pomijamy.
+    # Porownujemy z najswiezszym pojazdem, wiec strefa czasowa nie ma znaczenia.
+    newest = max(t for t, _, _ in cur.values())
+    cur = {v: p for v, p in cur.items() if (newest - p[0]).total_seconds() <= 300}
+
+    cells = {}
+    for v, (t1, lat1, lon1) in cur.items():
+        if v not in prev:
+            continue
+        t0, lat0, lon0 = prev[v]
+        sec = (t1 - t0).total_seconds()
+        if not 120 <= sec <= 900:
+            continue
+        kmh = haversine_km(lat0, lon0, lat1, lon1) / sec * 3600
+        if kmh > 90:
+            continue  # skok pozycji GPS
+        key = (
+            math.floor((lat0 + lat1) / 2 / CELL_LAT),
+            math.floor((lon0 + lon1) / 2 / CELL_LON),
+        )
+        cells.setdefault(key, []).append(kmh)
+
+    records = []
+    for (i, j), speeds in sorted(cells.items()):
+        speeds.sort()
+        records.append(
+            {
+                "cell_lat": round((i + 0.5) * CELL_LAT, 4),
+                "cell_lon": round((j + 0.5) * CELL_LON, 4),
+                "n": len(speeds),
+                "speed_mean": round(sum(speeds) / len(speeds), 1),
+                "speed_median": round(speeds[len(speeds) // 2], 1),
+                "stopped_share": round(sum(s < 3 for s in speeds) / len(speeds), 2),
+            }
+        )
+    return records, cur
+
+
+def save_bus_speeds(ts, day):
+    global _prev_buses
+    raw = fetch_keyed(ZTM_URL.format(key=WARSAW_API_KEY), WARSAW_API_KEY)
+    buses = raw.get("result")
+    if not isinstance(buses, list):
+        # API zwraca wtedy komunikat tekstowy, np. o zlym kluczu.
+        raise RuntimeError(f"API Warszawy: {str(buses)[:120]}")
+    records, _prev_buses_new = bus_speeds(_prev_buses, buses)
+    _prev_buses = _prev_buses_new
+    if not records:
+        log(f"Autobusy: {len(buses)} pozycji, brak poprzedniego pomiaru do policzenia predkosci")
+        return
+    path = os.path.join(OUT_DIR, "bus_speed", f"{day}.jsonl.gz")
+    append_jsonl(path, ({"fetched_at": ts, **r} for r in records))
+    n = sum(r["n"] for r in records)
+    log(f"Autobusy: {len(buses)} pozycji, predkosc z {n} pojazdow w {len(records)} komorkach -> {path}")
+
+
+def save_tomtom_flow(ts, day, deadline):
+    out = []
+    for name, lat, lon in TOMTOM_POINTS:
+        if time.time() > deadline:
+            log("TomTom: przekroczony czas, pomijam reszte punktow")
+            break
+        try:
+            raw = fetch_keyed(
+                TOMTOM_FLOW_URL.format(lat=lat, lon=lon, key=TOMTOM_API_KEY), TOMTOM_API_KEY
+            )
+        except Exception as e:
+            log(f"TomTom {name}: {e}")
+            continue
+        f = raw.get("flowSegmentData", {})
+        coords = f.get("coordinates", {}).get("coordinate") or [{}]
+        out.append(
+            {
+                "fetched_at": ts,
+                "point": name,
+                "frc": f.get("frc"),
+                "current_speed": f.get("currentSpeed"),
+                "free_flow_speed": f.get("freeFlowSpeed"),
+                "current_travel_time": f.get("currentTravelTime"),
+                "free_flow_travel_time": f.get("freeFlowTravelTime"),
+                "confidence": f.get("confidence"),
+                "road_closure": f.get("roadClosure"),
+                "seg_start": [coords[0].get("latitude"), coords[0].get("longitude")],
+                "seg_end": [coords[-1].get("latitude"), coords[-1].get("longitude")],
+            }
+        )
+    if out:
+        path = os.path.join(OUT_DIR, "traffic_flow", f"{day}.jsonl.gz")
+        append_jsonl(path, out)
+        log(f"TomTom: predkosc na {len(out)}/{len(TOMTOM_POINTS)} odcinkach -> {path}")
+
+
+def save_tomtom_incidents(ts, day):
+    url = TOMTOM_INCIDENTS_URL.format(
+        bbox=WARSAW_BBOX,
+        fields=urllib.parse.quote(TOMTOM_INCIDENT_FIELDS),
+        key=TOMTOM_API_KEY,
+    )
+    raw = fetch_keyed(url, TOMTOM_API_KEY)
+    out = []
+    for inc in raw.get("incidents", []):
+        p = inc.get("properties", {})
+        geom = inc.get("geometry", {})
+        c = geom.get("coordinates") or []
+        first = c[0] if geom.get("type") == "LineString" and c else c
+        out.append(
+            {
+                "fetched_at": ts,
+                "incident_id": p.get("id"),
+                # 1 wypadek, 6 korek, 7 zamkniety pas, 8 zamknieta droga, 9 roboty drogowe ...
+                "icon_category": p.get("iconCategory"),
+                "magnitude": p.get("magnitudeOfDelay"),
+                "delay_sec": p.get("delay"),
+                "length_m": p.get("length"),
+                "start_time": p.get("startTime"),
+                "end_time": p.get("endTime"),
+                "from": p.get("from"),
+                "to": p.get("to"),
+                "description": "; ".join(
+                    e.get("description", "") for e in p.get("events") or []
+                ),
+                "lon": first[0] if len(first) == 2 else None,
+                "lat": first[1] if len(first) == 2 else None,
+            }
+        )
+    path = os.path.join(OUT_DIR, "incidents", f"{day}.jsonl.gz")
+    # Jak w "loose": pusty pomiar zapisujemy jako jeden znacznik.
+    append_jsonl(path, out or [{"fetched_at": ts, "incident_id": None}])
+    log(f"TomTom: {len(out)} utrudnien w ruchu -> {path}")
+
+
+def save_traffic(slot):
+    """Dodatkowe zrodla; kazde w osobnym try, zeby jedno nie blokowalo innych."""
+    if not (WARSAW_API_KEY or TOMTOM_API_KEY):
+        return
+    now = dt.datetime.now(dt.timezone.utc)
+    ts = now.isoformat(timespec="seconds")
+    day = now.strftime("%Y-%m-%d")
+    deadline = time.time() + EXTRA_BUDGET_SEC
+    if WARSAW_API_KEY:
+        try:
+            save_bus_speeds(ts, day)
+        except Exception as e:
+            log(f"Autobusy: pomiar nieudany: {e}")
+    if TOMTOM_API_KEY and slot % TOMTOM_EVERY == 0:
+        try:
+            save_tomtom_incidents(ts, day)
+        except Exception as e:
+            log(f"TomTom utrudnienia: pomiar nieudany: {e}")
+        save_tomtom_flow(ts, day, deadline)
+
+
 def next_slot():
     """Najblizsza wielokrotnosc INTERVAL_SEC, oddalona o co najmniej pol odstepu."""
     now = time.time()
@@ -320,6 +566,7 @@ def main():
     while True:
         done += 1
         label = f"{done}" if deadline else f"{done}/{ITERATIONS}"
+        slot = round(time.time() / INTERVAL_SEC)  # numer slotu na siatce co INTERVAL_SEC
         try:
             day = save_status(src)
             try:
@@ -334,6 +581,11 @@ def main():
                 sys.exit(1)
             # Zrodlo moglo przestac dzialac - sprobuj wybrac inne na nastepny pomiar.
             src = pick_source() or src
+
+        try:
+            save_traffic(slot)
+        except Exception as e:
+            log(f"Dane o ruchu: blad: {e}")
 
         if deadline is None and done >= ITERATIONS:
             break
