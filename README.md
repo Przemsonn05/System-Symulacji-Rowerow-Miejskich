@@ -51,11 +51,11 @@ Każde źródło włącza się po dodaniu klucza w **Settings → Secrets and va
 | Secret | Skąd klucz | Co zbiera |
 |---|---|---|
 | `WARSAW_API_KEY` | rejestracja na https://api.um.warszawa.pl (darmowa) | `data/bus_speed/` – co 5 min |
-| `TOMTOM_API_KEY` | konto na https://developer.tomtom.com (darmowy plan) | `data/traffic_flow/` i `data/incidents/` – co 15 min |
+| `TOMTOM_API_KEY` | konto na https://developer.tomtom.com (darmowy plan) | `data/traffic_flow/` i `data/incidents/` – co 30 min |
 
 **`bus_speed`** – średnia prędkość autobusów ZTM w siatce ok. 550 × 550 m, liczona z pozycji GPS z dwóch kolejnych pomiarów: `fetched_at`, `cell_lat`, `cell_lon` (środek komórki), `n` (liczba autobusów), `speed_mean`, `speed_median` [km/h], `stopped_share` (udział autobusów stojących). Prędkość obejmuje postoje na przystankach i światłach, więc to miara płynności ruchu w okolicy, a nie prędkość chwilowa. Pierwszy pomiar każdego runu nie ma poprzednika, więc raz na godzinę brakuje jednego pomiaru.
 
-**`traffic_flow`** – prędkość na 10 odcinkach głównych arterii (lista `TOMTOM_POINTS` w `collect.py`): `point`, `current_speed`, `free_flow_speed` [km/h], `current_travel_time`, `free_flow_travel_time` [s], `confidence`, `road_closure`, `frc` (klasa drogi), `seg_start`/`seg_end` (odcinek, do którego TomTom dopasował punkt). Stosunek `current_speed / free_flow_speed` to miara korków. 10 punktów co 15 min to ok. 960 zapytań dziennie, poniżej darmowego limitu.
+**`traffic_flow`** – prędkość na 10 odcinkach głównych arterii (lista `TOMTOM_POINTS` w `collect.py`): `point`, `current_speed`, `free_flow_speed` [km/h], `current_travel_time`, `free_flow_travel_time` [s], `confidence`, `road_closure`, `frc` (klasa drogi), `seg_start`/`seg_end` (odcinek, do którego TomTom dopasował punkt). Stosunek `current_speed / free_flow_speed` to miara korków. Częstotliwość ustawia `TOMTOM_EVERY` w workflow (obecnie `6`, czyli co 30 min): 10 punktów + 1 zapytanie o utrudnienia, 48 razy na dobę, to ok. 528 zapytań dziennie. Przy pomiarze co 15 min (ok. 1056 dziennie) darmowy limit skończyłby się po ok. 3 tygodniach.
 
 **`incidents`** – aktualne utrudnienia w Warszawie (wypadki, zamknięcia, roboty drogowe): `incident_id`, `icon_category`, `magnitude`, `delay_sec`, `length_m`, `start_time`, `end_time`, `from`, `to`, `description`, `lat`, `lon` (początek odcinka). Pusty pomiar zapisywany jest jako jeden rekord z `incident_id: null`.
 

@@ -37,6 +37,9 @@ jobs:
           # Opcjonalne - bez tych secrets dane o ruchu sa po prostu pomijane.
           WARSAW_API_KEY: ${{ secrets.WARSAW_API_KEY }}
           TOMTOM_API_KEY: ${{ secrets.TOMTOM_API_KEY }}
+          # TomTom co 6. pomiar = co 30 min (~528 zapytan/dzien), zeby darmowy
+          # limit wystarczyl na caly okres zbierania.
+          TOMTOM_EVERY: "6"
         run: python collect.py
 
       - name: Zapis danych do repozytorium
