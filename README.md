@@ -18,9 +18,10 @@ data/
   status/RRRR-MM-DD.jsonl.gz   # stan stacji co 5 min (jeden plik na dzień, UTC)
   loose/RRRR-MM-DD.jsonl.gz    # rowery stojące poza stacjami (co 5 min)
   info/RRRR-MM-DD.json.gz      # lokalizacje i pojemności stacji (raz dziennie)
+  system/RRRR-MM-DD.json.gz    # stan floty, cennik, typy rowerów (raz dziennie)
 ```
 
-Pomiary są wyrównane do pełnych 5 minut (:00, :05, ...). Dane do 2026-10-22 14:02 UTC pochodzą ze starszej wersji skryptu (bez pól `source`, `booked_bikes`, `bike_numbers`).
+Pomiary są wyrównane do pełnych 5 minut (:00, :05, ...). Dane do 2026-10-22 14:02 UTC pochodzą ze starszej wersji skryptu (bez pól `source`, `booked_bikes`, `bike_numbers`). Dane do 2026-10-23 ok. 08:00 UTC nie mają pól `active_place`, `maintenance`, `ebike_battery`, a ich `is_renting` nie uwzględnia wyłączonych stacji (`active_place = 0`). W tych danych raz na godzinę, na styku runów, jest też dodatkowy pomiar kilkanaście sekund po poprzednim – przy analizie usuń duplikaty (np. zaokrąglając `fetched_at` do 5 min).
 
 Jeden rekord w `status`:
 
@@ -32,15 +33,19 @@ Jeden rekord w `status`:
 | `station_id` | id stacji (łączy się z `info`) |
 | `bikes` | dostępne rowery |
 | `docks` | wolne stojaki – **nie** jest twardym limitem, patrz uwagi |
-| `is_renting`, `is_returning` | czy stacja działa |
+| `is_renting`, `is_returning` | czy stacja działa (w `nextbike-live`: `active_place != 0` i brak `maintenance`) |
+| `active_place`, `maintenance` | surowe flagi stacji z `nextbike-live` (`active_place = 0` – stacja wyłączona, choć mogą na niej stać rowery) |
 | `last_reported` | kiedy stacja ostatnio raportowała (tylko GBFS; w `nextbike-live` `null`) |
 | `booked_bikes` | rowery zarezerwowane (tylko `nextbike-live`) |
 | `bike_numbers` | numery rowerów stojących na stacji (tylko `nextbike-live`) – pozwala odtworzyć przejazdy: rower znika ze stacji A i pojawia się na B |
 | `bike_types` / `vehicle_types` | rozbicie na typy rowerów (`nextbike-live` / GBFS) |
+| `ebike_battery` | numer roweru → poziom baterii [%] dla e-rowerów na stacji (typ `183`); `null`, gdy na stacji nie ma e-rowerów |
 
-Rekord w `loose`: `fetched_at`, `bike_number`, `place_id`, `lat`, `lon`, `bike_types`. Jeśli w danym pomiarze nie było żadnego roweru poza stacją, zapisywany jest jeden rekord z `bike_number: null` (żeby odróżnić „zero rowerów” od „brak pomiaru”). Feed obejmuje też rowery Veturilo wywiezione poza Warszawę.
+Rekord w `loose`: `fetched_at`, `bike_number`, `place_id`, `lat`, `lon`, `bike_types`, `battery` (poziom baterii [%] e-roweru, inaczej `null`). Jeśli w danym pomiarze nie było żadnego roweru poza stacją, zapisywany jest jeden rekord z `bike_number: null` (żeby odróżnić „zero rowerów” od „brak pomiaru”). Feed obejmuje też rowery Veturilo wywiezione poza Warszawę.
 
 Rekord stacji w `info`: `station_id`, `name`, `lat`, `lon`, `capacity` (liczba stojaków), `number`, `special_racks`, `terminal_type`, `rack_locks`, `place_type`.
+
+Plik `system` (jeden obiekt na dzień): `fetched_at`, `live_city` (m.in. `available_bikes`, `set_point_bikes` – docelowa wielkość floty, `booked_bikes`, `num_places`, `bookings_enabled`, `return_to_official_only`), `live_country` (ustawienia operatora), oraz surowe feedy GBFS `system_information`, `vehicle_types` (`71` standardowy, `183` e-bike, `150`/`228` inne standardowe) i `system_pricing_plans` (cennik – m.in. pierwsze 20 min za 0 zł).
 
 ## Dane o ruchu drogowym (opcjonalne)
 

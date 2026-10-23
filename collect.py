@@ -7,6 +7,8 @@ Co robi:
 - zapisuje rowery stojace poza stacjami do data/loose/RRRR-MM-DD.jsonl.gz,
 - raz dziennie zapisuje informacje o stacjach (lokalizacje, pojemnosci)
   do data/info/RRRR-MM-DD.json.gz,
+- raz dziennie zapisuje stan floty i ustawienia systemu (cennik, typy rowerow)
+  do data/system/RRRR-MM-DD.json.gz,
 - opcjonalnie (gdy ustawione sa klucze API) zbiera dane o ruchu drogowym,
   ktorych nie da sie pobrac wstecz: predkosci autobusow ZTM (data/bus_speed),
   predkosci na arteriach i utrudnienia z TomTom (data/traffic_flow, data/incidents).
@@ -19,7 +21,9 @@ Zrodla danych (sprawdzane po kolei, uzywane jest pierwsze dzialajace):
    rowerow, przeliczany do tego samego formatu.
 
 Pomiary sa wyrownane do siatki co INTERVAL_SEC (np. :00, :05, :10 ...),
-pierwszy pomiar robiony jest od razu po starcie.
+pierwszy pomiar robiony jest od razu po starcie - chyba ze przy DURATION_MIN
+start wypadl mniej niz START_SKIP_SEC po punkcie siatki (wtedy poprzedni run
+z lancucha juz go zmierzyl i czekamy na nastepny punkt).
 
 Uzycie:
   python collect.py                      # jeden pomiar (dobry test)
@@ -54,6 +58,7 @@ OUT_DIR = os.environ.get("OUT_DIR", "data")
 ITERATIONS = int(os.environ.get("ITERATIONS", "1"))
 DURATION_MIN = float(os.environ.get("DURATION_MIN", "0"))
 INTERVAL_SEC = int(os.environ.get("INTERVAL_SEC", "300"))
+START_SKIP_SEC = 90  # patrz main(): unikanie duplikatu na styku runow
 CITY_IDS = os.environ.get("CITY_IDS", "812")
 USER_AGENT = "Mozilla/5.0 (student project; bike-share simulation)"
 
@@ -147,6 +152,15 @@ class GbfsSource:
         return fetch_json(self.info_url) if self.info_url else None
 
 
+def ebike_battery(place):
+    """Numer roweru -> poziom baterii [%] dla rowerow elektrycznych w danym miejscu."""
+    return {
+        str(b.get("number")): b["pedelec_battery"]
+        for b in place.get("bike_list") or []
+        if b.get("pedelec_battery") is not None
+    }
+
+
 class LiveSource:
     """Oficjalny feed Nextbike (nextbike-live.json), przeliczany do formatu GBFS."""
 
@@ -170,6 +184,8 @@ class LiveSource:
         places, loose_places = self._places()
         stations = []
         for p in places:
+            # Stacja z active_place == 0 jest wylaczona, choc moga na niej stac rowery.
+            active = p.get("active_place", 1) != 0 and not p.get("maintenance", False)
             stations.append(
                 {
                     "station_id": str(p.get("uid")),
@@ -177,16 +193,20 @@ class LiveSource:
                     # free_racks = wolne stojaki; stacje Veturilo 3.0 przyjmuja
                     # zwroty takze przy free_racks == 0 (pojemnosc "miekka").
                     "docks": p.get("free_racks"),
-                    "is_renting": not p.get("maintenance", False),
-                    "is_returning": not p.get("maintenance", False),
+                    "is_renting": active,
+                    "is_returning": active,
+                    "active_place": p.get("active_place"),
+                    "maintenance": p.get("maintenance"),
                     "last_reported": None,  # feed live nie podaje tego pola
                     "booked_bikes": p.get("booked_bikes"),
                     "bike_types": p.get("bike_types"),
                     "bike_numbers": p.get("bike_numbers"),
+                    "ebike_battery": ebike_battery(p) or None,
                 }
             )
         loose = []
         for p in loose_places:
+            battery = ebike_battery(p)
             for num in p.get("bike_numbers") or [p.get("name")]:
                 loose.append(
                     {
@@ -195,6 +215,7 @@ class LiveSource:
                         "lat": p.get("lat"),
                         "lon": p.get("lng"),
                         "bike_types": p.get("bike_types"),
+                        "battery": battery.get(str(num)),
                     }
                 )
         return {
@@ -279,6 +300,41 @@ def save_info(src, day):
         json.dump(info, f, ensure_ascii=False)
     n = len(info.get("data", {}).get("stations", []))
     log(f"Zapisano informacje o stacjach: {n} -> {path}")
+
+
+def save_system(day):
+    """Raz dziennie: stan floty i ustawienia systemu (cennik, typy rowerow).
+
+    Jesli w trakcie zbierania zmieni sie cennik albo wielkosc floty, tego nie da
+    sie potem odtworzyc. Kazda czesc pobierana osobno, brak jednej nie blokuje reszty.
+    """
+    path = os.path.join(OUT_DIR, "system", f"{day}.json.gz")
+    if os.path.exists(path):
+        return
+    out = {"fetched_at": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")}
+    try:
+        raw = fetch_json(LIVE_URL)
+        countries = raw.get("countries", [])
+        # Bez list stacji - te sa w status/info.
+        out["live_country"] = [{k: v for k, v in c.items() if k != "cities"} for c in countries]
+        out["live_city"] = [
+            {k: v for k, v in ci.items() if k != "places"}
+            for c in countries
+            for ci in c.get("cities", [])
+        ]
+    except Exception as e:
+        log(f"System: brak danych z nextbike-live: {e}")
+    for feed in ("system_information", "vehicle_types", "system_pricing_plans"):
+        try:
+            out[feed] = fetch_json(f"{GBFS_DIRECT_BASES[0]}/{feed}.json", quiet=True)
+        except Exception as e:
+            log(f"System: brak {feed}: {e}")
+    if len(out) == 1:
+        return  # nic nie pobrano, sprobujemy przy nastepnym pomiarze
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with gzip.open(path, "wt", encoding="utf-8") as f:
+        json.dump(out, f, ensure_ascii=False)
+    log(f"Zapisano dane o systemie ({', '.join(k for k in out if k != 'fetched_at')}) -> {path}")
 
 
 def save_status(src):
@@ -562,6 +618,13 @@ def main():
         sys.exit(1)
 
     deadline = time.time() + DURATION_MIN * 60 if DURATION_MIN > 0 else None
+    # W lancuchu runow poprzedni run robi ostatni pomiar dokladnie w punkcie siatki,
+    # a ten startuje kilkanascie sekund pozniej. Pomiar od razu bylby duplikatem,
+    # wiec tuz po punkcie siatki czekamy na nastepny.
+    since_slot = time.time() % INTERVAL_SEC
+    if deadline is not None and since_slot < START_SKIP_SEC:
+        log(f"Start {since_slot:.0f} s po punkcie siatki - czekam na nastepny pomiar")
+        time.sleep(INTERVAL_SEC - since_slot)
     done = failures = 0
     while True:
         done += 1
@@ -573,6 +636,10 @@ def main():
                 save_info(src, day)
             except Exception as e:
                 log(f"Nie udalo sie zapisac informacji o stacjach: {e}")
+            try:
+                save_system(day)
+            except Exception as e:
+                log(f"Nie udalo sie zapisac danych o systemie: {e}")
         except Exception as e:
             failures += 1
             log(f"Pomiar {label} nieudany: {e}")
