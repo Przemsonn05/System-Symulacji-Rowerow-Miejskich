@@ -1,0 +1,22 @@
+# Pliki generowane przez Unity
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/[Rr]ecordings/
+.vs/
+.idea/
+*.csproj
+*.sln
+*.suo
+*.user
+*.pidb
+*.booproj
+*.unityproj
+
+# Dane wizualizacji - odtwarzane poleceniem: python -m src.viz.export
+/Assets/StreamingAssets/veturilo/
+/Assets/StreamingAssets/veturilo.meta
