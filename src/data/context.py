@@ -12,6 +12,15 @@ import pandas as pd
 from .config import STATIC, TZ, WARSAW_LAT, WARSAW_LON
 from .raw import read_jsonl_folder
 
+# Punkty TomTom przeniesione 26.10.2026 na glowna jezdnie tej samej ulicy (collect.py):
+# stary i nowy punkt to jeden korytarz. Pozostale punkty = korytarz o nazwie punktu.
+TOMTOM_CORRIDORS = {
+    "grochowska_praga": "grochowska",
+    "grochowska_kobielska": "grochowska",
+    "jerozolimskie_rondo_de_gaulle": "jerozolimskie",
+    "jerozolimskie_centrum": "jerozolimskie",
+}
+
 # Okno wplywu wydarzenia: od 2 h przed startem do 1 h po koncu.
 EVENT_BEFORE_H, EVENT_AFTER_H = 2, 1
 
@@ -117,23 +126,24 @@ def add_events(ctx, log):
 def add_traffic(ctx, log):
     flow = read_jsonl_folder("traffic_flow")
     if not flow.empty:
-        flow = flow[flow["free_flow_speed"] > 0]
-        # tylko punkty mierzone przez caly okres: po zmianie lokalizacji punktu (nowa nazwa)
-        # srednia z innego zestawu punktow dawalaby sztuczny skok wskaznika
-        coverage = flow.groupby("point")["time"].nunique() / flow["time"].nunique()
-        stable = coverage[coverage >= 0.95].index
-        if len(stable) < coverage.size:
-            log(f"  context: congestion z {len(stable)}/{coverage.size} punktow TomTom "
-                f"(pominiete: {', '.join(sorted(set(coverage.index) - set(stable)))})")
-        flow = flow[flow["point"].isin(stable)].copy()
+        flow = flow[flow["free_flow_speed"] > 0].copy()
+        # Punkt przeniesiony w inne miejsce tej samej ulicy (nowa nazwa) to ten sam korytarz.
+        # Wskaznik liczony dla kazdego pomiaru wzgledem jego wlasnej predkosci swobodnej,
+        # usredniany w korytarzu, a potem miedzy korytarzami (kazdy z ta sama waga) -
+        # sklad wskaznika nie zmienia sie przy wymianie punktu.
+        flow["corridor"] = flow["point"].map(TOMTOM_CORRIDORS).fillna(flow["point"])
         flow["congestion"] = (1 - flow["current_speed"] / flow["free_flow_speed"]).clip(lower=0)
         flow["hour"] = flow["time"].dt.floor("h")
+        per_corr = flow.groupby(["hour", "corridor"])["congestion"].mean()
         # liczba zamknietych odcinkow w pomiarze, srednio w godzinie (1 lub 2-4 pomiary)
         closures = flow.groupby(["hour", "time"])["road_closure"].sum().groupby(level=0).mean()
-        agg = flow.groupby("hour").agg(
-            congestion=("congestion", "mean"),
-            congestion_max=("congestion", "max"),
-        )
+        agg = per_corr.groupby(level="hour").agg(["mean", "max", "size"])
+        agg.columns = ["congestion", "congestion_max", "n_corridors"]
+        # kontrola odpornosci: tylko korytarze, w ktorych punkt nigdy sie nie zmienil
+        # (stare punkty Grochowskiej i Jerozolimskich prawie nie reagowaly na korki)
+        moved = set(TOMTOM_CORRIDORS.values())
+        stable = per_corr[~per_corr.index.get_level_values("corridor").isin(moved)]
+        agg["congestion_stable"] = stable.groupby(level="hour").mean()
         agg["n_road_closures"] = closures
         agg = agg.reset_index().rename(columns={"hour": "time"})
         ctx = ctx.merge(agg, on="time", how="left")

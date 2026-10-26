@@ -96,7 +96,7 @@ Daty niepotwierdzone w dokumentach źródłowych są oznaczone jako niepewne (za
    - `is_long` – dłużej niż 4 h (zwykle wycofanie do serwisu).
 3. **Relokacje operatora** (`type = service`) – ≥ 4 rowery przeniesione razem między tą samą parą stacji w tym samym odstępie pomiarów.
 4. **Tabele dla modelu** – popyt stacja × godzina z czasem dostępności roweru, okresy pustych stacji, flota w czasie.
-5. **Kontekst godzinowy** – pogoda, zmrok, typ dnia, kalendarze, wydarzenia, wskaźnik korków TomTom (`1 − prędkość / prędkość swobodna`), utrudnienia.
+5. **Kontekst godzinowy** – pogoda, zmrok, typ dnia, kalendarze, wydarzenia, wskaźnik korków TomTom, utrudnienia. Wskaźnik korków: dla każdego pomiaru `1 − prędkość / prędkość swobodna`, średnia w korytarzu (ulicy), potem średnia z 10 korytarzy. Punkty przeniesione 26.10 (Grochowska, Al. Jerozolimskie) są łączone ze swoimi poprzednikami w jeden korytarz, więc skład wskaźnika się nie zmienia.
 6. **Cechy stacji** – liczba POI w promieniu 300 m, odległość do metra, uczelni, dworca i centrum, drogi rowerowe, mieszkańcy w promieniu 500 m, odjazdy komunikacji, wysokość terenu.
 7. **Kontrola jakości** – `processed/quality_report.md`: luki, artefakty, **bilans przepływów** (w 98,5% odstępów zmiana liczby rowerów na stacji zgadza się z odtworzonymi przejazdami).
 
@@ -127,7 +127,7 @@ Pogrubione zastosowania wystarczają do zbudowania symulacji DES. Kontekst i cec
 | `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use` (w drodze < 4 h), `away_long` (> 4 h), `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
 | `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` (koniec nieznany) |
 | `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, `terminal_type`, statystyki (`share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`), `n_{restaurant,bar,cafe,office,university,school,mall,attraction,park,metro,train_station,tram_stop}_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `n_transit_stops_300m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m` (tylko Śródmieście), `elevation_m` |
-| `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `snowfall`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `{…}_classes_day`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
+| `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `snowfall`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `{…}_classes_day`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion` (średnia z 10 korytarzy TomTom), `congestion_max`, `congestion_stable` (tylko 8 korytarzy bez zmiany punktu – kontrola odporności), `n_corridors`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
 
 </details>
 
