@@ -42,14 +42,14 @@ def _compute(stations, log):
         d = dijkstra(mat, directed=True, indices=src[i : i + BATCH])[:, src]
         for k, row in enumerate(d):
             out.append(pd.DataFrame({
-                "from": stations["station_id"].iloc[i + k],
-                "to": stations["station_id"].to_numpy(),
+                "from_station": stations["station_id"].iloc[i + k],
+                "to_station": stations["station_id"].to_numpy(),
                 "network_km": np.round(row / 1000, 3),
             }))
     res = pd.concat(out, ignore_index=True)
     res.loc[~np.isfinite(res["network_km"]), "network_km"] = np.nan
     snap_m = dict(zip(stations["station_id"], np.round(snap, 1)))
-    res["snap_m"] = res["from"].map(snap_m)  # odleglosc stacji od najblizszego wezla grafu
+    res["snap_m"] = res["from_station"].map(snap_m)  # odleglosc stacji od najblizszego wezla grafu
     log(f"  siec: {len(res)} par stacji, brak polaczenia: {res['network_km'].isna().sum()}")
     return res
 
@@ -57,8 +57,12 @@ def _compute(stations, log):
 def network_distances(stations, log):
     """Macierz odleglosci sieciowych (z pliku albo przeliczona, gdy sa nowe stacje)."""
     cached = pd.read_parquet(OUT) if OUT.exists() else None
+    if cached is not None and "from" in cached:
+        # plik zapisany przed zmiana nazw kolumn (from/to -> from_station/to_station)
+        cached = cached.rename(columns={"from": "from_station", "to": "to_station"})
+        cached.to_parquet(OUT, index=False)
     ids = set(stations["station_id"])
-    if cached is not None and ids <= set(cached["from"]):
+    if cached is not None and ids <= set(cached["from_station"]):
         return cached
     if not (OSM_DIR / "graph_bike.graphml").exists():
         log("  siec: brak grafu rowerowego (fetch_static --only osm) - pomijam network_km")
@@ -74,8 +78,8 @@ def add_network_distance(trips, reb, stations, log):
         trips["network_km"] = np.nan
         reb["network_km"] = np.nan
         return trips, reb
-    lookup = dist.set_index(["from", "to"])["network_km"]
+    lookup = dist.set_index(["from_station", "to_station"])["network_km"]
     for df in (trips, reb):
-        key = pd.MultiIndex.from_arrays([df["from"], df["to"]])
+        key = pd.MultiIndex.from_arrays([df["from_station"], df["to_station"]])
         df["network_km"] = lookup.reindex(key).to_numpy()
     return trips, reb

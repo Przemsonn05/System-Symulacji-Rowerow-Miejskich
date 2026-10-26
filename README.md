@@ -34,7 +34,7 @@ python -m src.data.build          # po każdym git pull – ok. 1 min
 
 Co robi `build`:
 
-1. **Czyszczenie pomiarów** – oba formaty plików (przed i po dodaniu numerów rowerów), usunięcie duplikatów < 60 s, odfiltrowanie stacji wyłączonych. Czas wszędzie w UTC.
+1. **Czyszczenie pomiarów** – oba formaty plików (przed i po dodaniu numerów rowerów), usunięcie duplikatów < 60 s, odfiltrowanie stacji wyłączonych, oznaczenie błędnych odczytów (chwilowe skoki, niezgodność numerów rowerów). Czas wszędzie w UTC; czas lokalny (`Europe/Warsaw`) tylko do godziny i typu dnia.
 2. **Odtworzenie przejazdów** – rower znika ze stacji A i pojawia się na B → przejazd A → B (czas ±5 min). Odrzucane są przeskoki GPS (zmiana stacji bez zniknięcia, < 0,5 km); oznaczane: powroty na tę samą stację, migotanie feedu, przejazdy do/z miejsc poza stacjami, nierealnie szybkie (> 30 km/h) i dłuższe niż 4 h (serwis).
 3. **Relokacje operatora** – ≥ 4 rowery przeniesione razem między tą samą parą stacji.
 4. **Kontekst godzinowy** – pogoda, zmrok, typ dnia, kalendarze, wydarzenia, wskaźnik korków.
@@ -61,10 +61,10 @@ Pogrubione pliki wystarczają do symulacji DES. Cechy otoczenia i kontekst są p
 
 | Plik | Kolumny |
 |---|---|
-| `observed_timeseries` | `time`, `station_id`, `bikes`, `docks`, `ebikes`, `ebikes_low` (bateria < 20%), `is_empty`, `is_overfull` |
+| `observed_timeseries` | `time`, `station_id`, `bikes`, `docks`, `ebikes`, `ebikes_low` (bateria < 20%), `is_empty`, `is_overfull`, `is_spike` (chwilowy błąd feedu – pomijać), `numbers_mismatch` (liczba numerów rowerów ≠ `bikes`) |
 | `station_hourly` | `station_id`, `hour`, `departures`, `arrivals`, `departures_ebike`, `service_out`, `service_in`, `minutes_observed`, `minutes_empty`, `minutes_overfull`, `minutes_available`, `departure_rate_per_h`, `mean_bikes`, `min_bikes`, `mean_ebikes` |
-| `trips` | `bike`, `from`, `to` (id stacji albo `loose:<id>`), `from_type`, `to_type`, współrzędne, `t_departure`, `t_arrival`, `duration_min`, `distance_km`, `network_km`, `elev_diff_m`, `is_ebike`, `battery_start`, `type`, `same_station`, `is_flicker`, `from_loose`, `to_loose`, `is_long`, `too_fast` |
-| `rebalancing_observed` | `from`, `to`, `t_departure`, `t_arrival`, `n_bikes`, `bikes`, `distance_km`, `network_km`, `duration_min` |
+| `trips` | `bike`, `from_station`, `to_station` (id stacji albo `loose:<id>`), `from_type`, `to_type`, współrzędne, `t_departure`, `t_arrival`, `duration_min`, `distance_km`, `network_km`, `elev_diff_m`, `is_ebike`, `battery_start`, `type`, `same_station`, `is_flicker`, `from_loose`, `to_loose`, `is_long`, `too_fast` |
+| `rebalancing_observed` | `from_station`, `to_station`, `t_departure`, `t_arrival`, `n_bikes`, `bikes`, `distance_km`, `network_km`, `duration_min` |
 | `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use`, `away_long`, `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
 | `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` |
 | `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, statystyki (`share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`), `n_{kategoria}_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m`, `elevation_m` |

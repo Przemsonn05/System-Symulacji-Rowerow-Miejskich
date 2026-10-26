@@ -62,10 +62,11 @@ def station_hourly(obs, trips):
     base["minutes_overfull"] = base.pop("n_overfull") * STEP_MIN
     base["minutes_available"] = base["minutes_observed"] - base["minutes_empty"]
 
-    def count(df, col, t_col, shift, name):
-        s = df[df[f"{col}_type"] == "station"]
+    def count(df, side, t_col, shift, name):
+        """side = "from" (odjazdy) albo "to" (przyjazdy)."""
+        s = df[df[f"{side}_type"] == "station"]
         h = (s[t_col] + shift).dt.floor("h")
-        return s.groupby([s[col].rename("station_id"), h.rename("hour")]).size().rename(name)
+        return s.groupby([s[f"{side}_station"].rename("station_id"), h.rename("hour")]).size().rename(name)
 
     user = _clean_user(trips)
     service = trips[trips["type"] == "service"]
@@ -126,8 +127,8 @@ def flow_balance(obs, trips):
     o["delta"] = o.groupby("station_id")["bikes"].diff()
     o = o.dropna(subset=["delta"])
     st = trips
-    dep = st[st["from_type"] == "station"].groupby(["from", "t_departure"]).size().rename("dep")
-    arr = st[st["to_type"] == "station"].groupby(["to", "t_arrival"]).size().rename("arr")
+    dep = st[st["from_type"] == "station"].groupby(["from_station", "t_departure"]).size().rename("dep")
+    arr = st[st["to_type"] == "station"].groupby(["to_station", "t_arrival"]).size().rename("arr")
     o = o.merge(dep, left_on=["station_id", "t0"], right_index=True, how="left")
     o = o.merge(arr, left_on=["station_id", "time"], right_index=True, how="left")
     # odstepy po pomiarach w starym formacie (bez numerow rowerow) nie maja przejazdow

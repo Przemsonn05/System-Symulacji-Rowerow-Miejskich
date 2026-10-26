@@ -92,8 +92,9 @@ def scan_status(stations, loose):
             eb = r.get("ebike_battery")
             n_eb = len(eb) if eb else (0 if "ebike_battery" in r else None)
             n_low = sum(v < EBIKE_LOW_PCT for v in eb.values()) if eb else n_eb
+            bn = r.get("bike_numbers")
             rows.append((t, sid, r.get("bikes"), r.get("docks"), r.get("is_renting"), r.get("active_place"),
-                         n_eb, n_low))
+                         n_eb, n_low, len(bn) if bn is not None else None))
             if eb:
                 battery.update({str(k): v for k, v in eb.items()})
             if has_numbers:
@@ -114,7 +115,7 @@ def scan_status(stations, loose):
         ))
 
     ts_df = pd.DataFrame(rows, columns=["time", "station_id", "bikes", "docks", "is_renting", "active_place",
-                                        "ebikes", "ebikes_low"])
+                                        "ebikes", "ebikes_low", "n_bike_numbers"])
     snap_df = pd.DataFrame(snaps, columns=["time", "has_bike_numbers", "source"])
     fleet_df = pd.DataFrame(fleet, columns=["time", "at_stations", "loose_warsaw", "loose_outside",
                                             "in_use", "away_long", "ebikes_parked"])
@@ -127,13 +128,37 @@ def clean_timeseries(ts, stations):
     act = ts["is_renting"].astype(float).where(ts["active_place"].notna())
     act = act.groupby(ts["station_id"]).transform("bfill")
     active = act.fillna(ts["is_renting"].astype(float)).astype(bool) & ts["is_renting"].astype(bool)
-    out = ts.loc[active, ["time", "station_id", "bikes", "docks", "ebikes", "ebikes_low"]].copy()
+    out = ts.loc[active, ["time", "station_id", "bikes", "docks", "ebikes", "ebikes_low", "n_bike_numbers"]].copy()
     out[["ebikes", "ebikes_low"]] = out[["ebikes", "ebikes_low"]].astype("Int64")  # brak w starym formacie
     cap = stations.set_index("station_id")["capacity"]
     out["is_empty"] = out["bikes"] == 0
     # bikes > capacity jest dozwolone (stacje Veturilo 3.0 przyjmuja rowery ponad stojaki)
     out["is_overfull"] = out["bikes"] > out["station_id"].map(cap)
+    out = flag_suspect(out)
     return out.reset_index(drop=True), active
+
+
+SPIKE_MIN_BIKES = 4  # chwilowy skok liczby rowerow, ktory od razu sie cofa
+
+
+def flag_suspect(obs):
+    """Podejrzane odczyty (nie usuwane z szeregu, tylko oznaczane):
+
+    numbers_mismatch - liczba numerow rowerow != bikes (prawie zawsze o 1 mniej:
+                       rower bez numeru w feedzie; liczba rowerow zwykle poprawna),
+    is_spike         - bikes skacze o >= 4 i w nastepnym pomiarze wraca (+-1) do
+                       poprzedniej wartosci - chwilowy blad feedu; takie odczyty sa
+                       pomijane w tabelach pochodnych (station_hourly, empty_periods, ...).
+    """
+    obs = obs.sort_values(["station_id", "time"])
+    g = obs.groupby("station_id")
+    d1 = obs["bikes"] - g["bikes"].shift()
+    d2 = g["bikes"].shift(-1) - obs["bikes"]
+    gap1 = (obs["time"] - g["time"].shift()).dt.total_seconds() / 60
+    gap2 = (g["time"].shift(-1) - obs["time"]).dt.total_seconds() / 60
+    obs["is_spike"] = (d1.abs() >= SPIKE_MIN_BIKES) & ((d1 + d2).abs() <= 1) & (gap1 <= 15) & (gap2 <= 15)
+    obs["numbers_mismatch"] = obs["n_bike_numbers"].notna() & (obs["n_bike_numbers"] != obs["bikes"])
+    return obs.drop(columns="n_bike_numbers").sort_values(["time", "station_id"])
 
 
 def station_stats(stations, obs, ts_all, active):
@@ -160,7 +185,7 @@ def add_trip_elevation(trips):
     trips["elev_diff_m"] = float("nan")
     if path.exists():
         el = pd.read_csv(path, dtype={"station_id": str}).set_index("station_id")["elevation_m"]
-        trips["elev_diff_m"] = (trips["to"].map(el) - trips["from"].map(el)).round(1)
+        trips["elev_diff_m"] = (trips["to_station"].map(el) - trips["from_station"].map(el)).round(1)
     return trips
 
 
@@ -185,6 +210,9 @@ def quality_report(snaps, n_dup, n_inactive, n_stations, obs, trips, reb, builde
         f"- Pomiary w starym formacie (bez `bike_numbers`): {(~snaps['has_bike_numbers']).sum()}",
         f"- Stacje: {n_stations} w `info`, {obs['station_id'].nunique()} aktywnych przynajmniej w jednym pomiarze; "
         f"rekordy stacji nieaktywnych (usunięte): {n_inactive}",
+        f"- Podejrzane odczyty (oznaczone, nie usunięte): chwilowe skoki ≥ {SPIKE_MIN_BIKES} rowerów (`is_spike`, "
+        f"pomijane w tabelach pochodnych): {int(obs['is_spike'].sum())}; liczba numerów rowerów ≠ `bikes` "
+        f"(`numbers_mismatch`): {int(obs['numbers_mismatch'].sum())} ({obs['numbers_mismatch'].mean():.2%})",
         f"- Luki > {GAP_REPORT_MIN} min: {len(big)}",
     ]
     for end in big:
@@ -288,13 +316,14 @@ def main(argv=None):
     reb.to_parquet(PROCESSED / "rebalancing_observed.parquet", index=False)
     log(f"  trips: {len(trips)} (service: {(trips['type'] == 'service').sum()}), relokacje: {len(reb)} grup")
 
-    empty = empty_periods(obs)
+    obs_ok = obs[~obs["is_spike"]]  # bez chwilowych bledow feedu
+    empty = empty_periods(obs_ok)
     empty.to_parquet(PROCESSED / "empty_periods.parquet", index=False)
-    hourly = station_hourly(obs, trips)
+    hourly = station_hourly(obs_ok, trips)
     hourly.to_parquet(PROCESSED / "station_hourly.parquet", index=False)
     fleet = fleet_timeseries(fleet)
     fleet.to_parquet(PROCESSED / "fleet_timeseries.parquet", index=False)
-    balance = flow_balance(obs, trips)
+    balance = flow_balance(obs_ok, trips)
     log(f"  empty_periods: {len(empty)}, station_hourly: {len(hourly)} wierszy, fleet_timeseries: {len(fleet)}")
 
     log("Kontekst godzinowy...")
@@ -303,7 +332,7 @@ def main(argv=None):
     log(f"  context_hourly: {len(ctx)} godzin, {ctx.shape[1]} kolumn")
 
     log("Stacje...")
-    st = station_stats(stations, obs, ts_all, active)
+    st = station_stats(stations, obs_ok, ts_all, active)
     if not args.no_features:
         from .features import add_station_features
 

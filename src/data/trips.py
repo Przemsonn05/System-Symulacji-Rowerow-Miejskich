@@ -97,7 +97,7 @@ class TripBuilder:
         )
 
     def to_frame(self):
-        cols = ["bike", "from", "to", "from_type", "to_type", "from_lat", "from_lon",
+        cols = ["bike", "from_station", "to_station", "from_type", "to_type", "from_lat", "from_lon",
                 "to_lat", "to_lon", "t_departure", "t_arrival", "distance_km", "battery_start"]
         df = pd.DataFrame(self.trips, columns=cols)
         # jawne typy - przy braku przejazdow pusta ramka mialaby kolumny object
@@ -107,7 +107,7 @@ class TripBuilder:
         df["battery_start"] = df["battery_start"].astype(float)
         df["duration_min"] = (df["t_arrival"] - df["t_departure"]).dt.total_seconds() / 60
         df["distance_km"] = df["distance_km"].round(3)
-        df["same_station"] = (df["from_type"] == "station") & (df["from"] == df["to"])
+        df["same_station"] = (df["from_type"] == "station") & (df["from_station"] == df["to_station"])
         # rower "znika" na jeden pomiar i wraca na te sama stacje - zwykle artefakt feedu
         df["is_flicker"] = df["same_station"] & (df["duration_min"] <= FLICKER_MAX_MIN)
         df["from_loose"] = df["from_type"] == "loose"
@@ -124,7 +124,7 @@ class TripBuilder:
 def mark_service(trips):
     """Relokacje: >= SERVICE_MIN_BIKES rowerow przeniesionych razem miedzy ta sama
     para stacji w tym samym odstepie pomiarow. Zwraca (trips z type, rebalancing)."""
-    key = ["from", "to", "t_departure", "t_arrival"]
+    key = ["from_station", "to_station", "t_departure", "t_arrival"]
     st = trips[(trips["from_type"] == "station") & (trips["to_type"] == "station") & ~trips["same_station"]]
     size = st.groupby(key)["bike"].transform("size")
     service_idx = st.index[size >= SERVICE_MIN_BIKES]
