@@ -1,84 +1,116 @@
-# Veturilo – zbieranie danych
+# Symulacja systemu rowerów miejskich Veturilo
 
-Automatyczne zbieranie stanu stacji roweru miejskiego Veturilo (Warszawa) z otwartego feedu Nextbike (`nextbike-live.json`, zapasowo GBFS `nextbike_vw`), co 5 minut, przez GitHub Actions.
+Projekt z przedmiotu *Symulacja systemów dyskretnych*: stochastyczna symulacja zdarzeń dyskretnych (DES) systemu Veturilo w Warszawie, kalibrowana i walidowana na **własnych danych zbieranych co 5 minut**.
 
-## Uruchomienie (ok. 5 minut)
+## Stan projektu
 
-1. Utwórz repozytorium na GitHubie (może być prywatne) i wrzuć do niego:
-   - `collect.py`
-   - `.github/workflows/collect.yml` (dokładnie ta ścieżka)
-2. W repozytorium: **Settings → Actions → General → Workflow permissions** → zaznacz **Read and write permissions** → Save.
-3. Zakładka **Actions** → „Zbieranie danych Veturilo” → **Run workflow**, żeby od razu sprawdzić, czy działa.
-4. Po ok. godzinie w repozytorium pojawi się folder `data/`. Potem workflow uruchamia się sam co godzinę.
-
-## Struktura danych
-
-```
-data/
-  status/RRRR-MM-DD.jsonl.gz   # stan stacji co 5 min (jeden plik na dzień, UTC)
-  loose/RRRR-MM-DD.jsonl.gz    # rowery stojące poza stacjami (co 5 min)
-  info/RRRR-MM-DD.json.gz      # lokalizacje i pojemności stacji (raz dziennie)
-  system/RRRR-MM-DD.json.gz    # stan floty, cennik, typy rowerów (raz dziennie)
-```
-
-Pomiary są wyrównane do pełnych 5 minut (:00, :05, ...). Dane do 2026-10-22 14:02 UTC pochodzą ze starszej wersji skryptu (bez pól `source`, `booked_bikes`, `bike_numbers`). Dane do 2026-10-23 ok. 08:00 UTC nie mają pól `active_place`, `maintenance`, `ebike_battery`, a ich `is_renting` nie uwzględnia wyłączonych stacji (`active_place = 0`). W tych danych raz na godzinę, na styku runów, jest też dodatkowy pomiar kilkanaście sekund po poprzednim – przy analizie usuń duplikaty (np. zaokrąglając `fetched_at` do 5 min).
-
-Jeden rekord w `status`:
-
-| Pole | Znaczenie |
+| Etap | Stan |
 |---|---|
-| `fetched_at` | czas pobrania (UTC) |
-| `source` | źródło pomiaru: `nextbike-live` albo `gbfs` |
-| `feed_last_updated` | znacznik czasu feedu (tylko GBFS; w `nextbike-live` `null`) |
-| `station_id` | id stacji (łączy się z `info`) |
-| `bikes` | dostępne rowery |
-| `docks` | wolne stojaki – **nie** jest twardym limitem, patrz uwagi |
-| `is_renting`, `is_returning` | czy stacja działa (w `nextbike-live`: `active_place != 0` i brak `maintenance`) |
-| `active_place`, `maintenance` | surowe flagi stacji z `nextbike-live` (`active_place = 0` – stacja wyłączona, choć mogą na niej stać rowery) |
-| `last_reported` | kiedy stacja ostatnio raportowała (tylko GBFS; w `nextbike-live` `null`) |
-| `booked_bikes` | rowery zarezerwowane (tylko `nextbike-live`) |
-| `bike_numbers` | numery rowerów stojących na stacji (tylko `nextbike-live`) – pozwala odtworzyć przejazdy: rower znika ze stacji A i pojawia się na B |
-| `bike_types` / `vehicle_types` | rozbicie na typy rowerów (`nextbike-live` / GBFS) |
-| `ebike_battery` | numer roweru → poziom baterii [%] dla e-rowerów na stacji (typ `183`); `null`, gdy na stacji nie ma e-rowerów |
+| Zbieranie danych live (GitHub Actions, co 5 min, od 22.10.2026) | ✅ działa nieprzerwanie od 23.10 |
+| Dane statyczne: pogoda, kalendarze, wydarzenia, OSM, populacja, komunikacja | ✅ `python -m src.data.fetch_static` |
+| Preprocessing: szereg czasowy stacji, przejazdy, relokacje, kontekst | ✅ `python -m src.data.build` |
+| Analiza opisowa i hipoteza H2 | ✅ wstępnie (notebooki) – do powtórzenia na ≥ 2 tygodniach danych |
+| Kalibracja modelu popytu i symulacja DES | ⏳ następny etap |
+| Wizualizacja 3D (Streamlit + pydeck) | ⏳ |
 
-Rekord w `loose`: `fetched_at`, `bike_number`, `place_id`, `lat`, `lon`, `bike_types`, `battery` (poziom baterii [%] e-roweru, inaczej `null`). Jeśli w danym pomiarze nie było żadnego roweru poza stacją, zapisywany jest jeden rekord z `bike_number: null` (żeby odróżnić „zero rowerów” od „brak pomiaru”). Feed obejmuje też rowery Veturilo wywiezione poza Warszawę.
+## Dane
 
-Rekord stacji w `info`: `station_id`, `name`, `lat`, `lon`, `capacity` (liczba stojaków), `number`, `special_racks`, `terminal_type`, `rack_locks`, `place_type`.
+**Live** – zbierane przez [`collect.py`](collect.py) z oficjalnego feedu Nextbike (`nextbike-live.json`) do `data/`:
 
-Plik `system` (jeden obiekt na dzień): `fetched_at`, `live_city` (m.in. `available_bikes`, `set_point_bikes` – docelowa wielkość floty, `booked_bikes`, `num_places`, `bookings_enabled`, `return_to_official_only`), `live_country` (ustawienia operatora), oraz surowe feedy GBFS `system_information`, `vehicle_types` (`71` standardowy, `183` e-bike, `150`/`228` inne standardowe) i `system_pricing_plans` (cennik – m.in. pierwsze 20 min za 0 zł).
+- **stan każdej z 348 stacji co 5 min** – liczba rowerów, wolne stojaki, czy stacja działa, **numery rowerów na stacji** (z nich odtwarzamy pojedyncze przejazdy) i bateria e-rowerów,
+- rowery zostawione poza stacjami (pozycja),
+- raz dziennie: lokalizacje i pojemności stacji, wielkość floty, cennik,
+- ruch drogowy z TomTom co 30 min: prędkość na 10 arteriach i utrudnienia.
 
-## Dane o ruchu drogowym (opcjonalne)
+**Statyczne / historyczne** – pobierane raz do `data/static/`: pogoda i jakość powietrza (Open-Meteo), kalendarz świąt, szkół (ferie mazowieckie) i uczelni (UW, PW, SGH, WUM) ze [źródłami dat](data/static/calendar_sources.md), wydarzenia (mecze, PGE Narodowy, wydarzenia miejskie), OpenStreetMap (POI, drogi rowerowe, grafy dróg), populacja (Kontur), odjazdy komunikacji miejskiej (GTFS ZTM), wysokość terenu.
 
-Zbierane tylko te dane, których nie da się pobrać później. Pogodę, kalendarz, POI (OpenStreetMap) i rozkłady GTFS pobiera się wstecz przy budowie modelu.
+## Przygotowanie danych (`src/data/`)
 
-Każde źródło włącza się po dodaniu klucza w **Settings → Secrets and variables → Actions → New repository secret**. Bez klucza jest po prostu pomijane, a błędy tych źródeł nie przerywają zbierania danych o rowerach.
-
-| Secret | Skąd klucz | Co zbiera |
-|---|---|---|
-| `WARSAW_API_KEY` | rejestracja na https://api.um.warszawa.pl (darmowa) | `data/bus_speed/` – co 5 min |
-| `TOMTOM_API_KEY` | konto na https://developer.tomtom.com (darmowy plan) | `data/traffic_flow/` i `data/incidents/` – co 30 min |
-
-**`bus_speed`** – średnia prędkość autobusów ZTM w siatce ok. 550 × 550 m, liczona z pozycji GPS z dwóch kolejnych pomiarów: `fetched_at`, `cell_lat`, `cell_lon` (środek komórki), `n` (liczba autobusów), `speed_mean`, `speed_median` [km/h], `stopped_share` (udział autobusów stojących). Prędkość obejmuje postoje na przystankach i światłach, więc to miara płynności ruchu w okolicy, a nie prędkość chwilowa. Pierwszy pomiar każdego runu nie ma poprzednika, więc raz na godzinę brakuje jednego pomiaru.
-
-**`traffic_flow`** – prędkość na 10 odcinkach głównych arterii (lista `TOMTOM_POINTS` w `collect.py`): `point`, `current_speed`, `free_flow_speed` [km/h], `current_travel_time`, `free_flow_travel_time` [s], `confidence`, `road_closure`, `frc` (klasa drogi), `seg_start`/`seg_end` (odcinek, do którego TomTom dopasował punkt). Stosunek `current_speed / free_flow_speed` to miara korków. Częstotliwość ustawia `TOMTOM_EVERY` w workflow (obecnie `6`, czyli co 30 min): 10 punktów + 1 zapytanie o utrudnienia, 48 razy na dobę, to ok. 528 zapytań dziennie. Przy pomiarze co 15 min (ok. 1056 dziennie) darmowy limit skończyłby się po ok. 3 tygodniach.
-
-**`incidents`** – aktualne utrudnienia w Warszawie (wypadki, zamknięcia, roboty drogowe): `incident_id`, `icon_category`, `magnitude`, `delay_sec`, `length_m`, `start_time`, `end_time`, `from`, `to`, `description`, `lat`, `lon` (początek odcinka). Pusty pomiar zapisywany jest jako jeden rekord z `incident_id: null`.
-
-## Wczytanie w Pythonie
-
-```python
-import glob, pandas as pd
-
-status = pd.concat(pd.read_json(f, lines=True) for f in sorted(glob.glob("data/status/*.jsonl.gz")))
-status["fetched_at"] = pd.to_datetime(status["fetched_at"]).dt.tz_convert("Europe/Warsaw")
+```bash
+pip install -r requirements.txt
+python -m src.data.fetch_static   # raz (potem korzysta z cache, dociąga tylko nowe dni pogody)
+python -m src.data.build          # po każdym git pull – ok. 1 min
 ```
 
-## Uwagi
+Co robi `build`:
 
-- **Pojemność stacji jest „miękka”.** Stacje Veturilo 3.0 (`terminal_type: "sign"`, `rack_locks: false`) przyjmują rowery także wtedy, gdy wszystkie stojaki są zajęte – wtedy `bikes > capacity` i `docks = 0` (w pierwszej godzinie danych: 39% rekordów). W modelu nie należy odrzucać zwrotów przy `docks == 0`.
-- Harmonogram GitHub Actions bywa opóźniony o kilka–kilkanaście minut. Każdy run mierzy przez 57 minut, a następny czeka w kolejce (`concurrency`), więc luki między runami są zwykle krótkie, ale mogą się zdarzyć.
-- Ręczne uruchomienie: `iterations = 1` to szybki test, `iterations = 0` to pełna godzina jak w harmonogramie.
-- Rozmiar danych: ok. 13 KB na pomiar po kompresji, czyli ok. 3–4 MB dziennie (~100 MB miesięcznie).
-- GitHub wyłącza zaplanowane workflow w repozytoriach bez aktywności przez 60 dni. Commity z danymi liczą się jako aktywność, ale co tydzień zajrzyjcie do zakładki Actions, czy nie ma błędów.
-- Darmowy limit Actions: repozytorium **publiczne** – bez limitu minut; **prywatne** – 2000 min/miesiąc, a ten workflow zużywa ok. 1 h na godzinę (~720 h/miesiąc). **Dlatego repozytorium z danymi musi być publiczne** (dane i tak są otwarte), albo trzeba skrócić zbieranie.
-- Inne miasto Nextbike: ustaw `CITY_IDS` (id miasta w `nextbike-live`) i `GBFS_ROOT` (np. `https://gbfs.nextbike.net/maps/gbfs/v2/nextbike_<ID>/gbfs.json`).
+1. **Czyszczenie pomiarów** – oba formaty plików (przed i po dodaniu numerów rowerów), usunięcie duplikatów < 60 s, odfiltrowanie stacji wyłączonych. Czas wszędzie w UTC.
+2. **Odtworzenie przejazdów** – rower znika ze stacji A i pojawia się na B → przejazd A → B (czas ±5 min). Odrzucane są przeskoki GPS (zmiana stacji bez zniknięcia, < 0,5 km); oznaczane: powroty na tę samą stację, migotanie feedu, przejazdy do/z miejsc poza stacjami, nierealnie szybkie (> 30 km/h) i dłuższe niż 4 h (serwis).
+3. **Relokacje operatora** – ≥ 4 rowery przeniesione razem między tą samą parą stacji.
+4. **Kontekst godzinowy** – pogoda, zmrok, typ dnia, kalendarze, wydarzenia, wskaźnik korków.
+5. **Cechy stacji** – POI w promieniu 300 m, odległość do metra/uczelni/dworca/centrum, drogi rowerowe, populacja, komunikacja, wysokość terenu.
+6. **Kontrola jakości** – `processed/quality_report.md` (tworzy go `build`): luki, artefakty, bilans przepływów (w 98,5% odstępów zmiana liczby rowerów na stacji zgadza się z odtworzonymi przejazdami).
+
+### Pliki wynikowe (`processed/`)
+
+| Plik | Zawartość | Do czego |
+|---|---|---|
+| `station_hourly.parquet` | stacja × godzina: wypożyczenia, zwroty, relokacje, czas, gdy stacja była pusta | **kalibracja popytu λ** |
+| `trips.parquet` | przejazdy: skąd, dokąd, kiedy, czas, dystans (prosty i po drogach), e-rower, typ user/service | **macierz OD, czasy jazdy** |
+| `observed_timeseries.parquet` | stan każdej stacji co 5 min | **stan początkowy, walidacja** |
+| `rebalancing_observed.parquet` | relokacje operatora: czas, para stacji, liczba rowerów | **strategia operatora** |
+| `fleet_timeseries.parquet` | rowery na stacjach / w drodze / poza obiegiem vs flota operatora | **wielkość floty** |
+| `empty_periods.parquet` | okresy pustych stacji | popyt ocenzurowany |
+| `stations.parquet` | stacje + cechy otoczenia | model popytu (opcjonalnie) |
+| `context_hourly.parquet` | pogoda, kalendarz, wydarzenia, korki co godzinę | model popytu, scenariusze |
+
+Pogrubione pliki wystarczają do symulacji DES. Cechy otoczenia i kontekst są potrzebne dopiero do wyjaśniania popytu i scenariuszy.
+
+<details>
+<summary>Pełna lista kolumn</summary>
+
+| Plik | Kolumny |
+|---|---|
+| `observed_timeseries` | `time`, `station_id`, `bikes`, `docks`, `ebikes`, `ebikes_low` (bateria < 20%), `is_empty`, `is_overfull` |
+| `station_hourly` | `station_id`, `hour`, `departures`, `arrivals`, `departures_ebike`, `service_out`, `service_in`, `minutes_observed`, `minutes_empty`, `minutes_overfull`, `minutes_available`, `departure_rate_per_h`, `mean_bikes`, `min_bikes`, `mean_ebikes` |
+| `trips` | `bike`, `from`, `to` (id stacji albo `loose:<id>`), `from_type`, `to_type`, współrzędne, `t_departure`, `t_arrival`, `duration_min`, `distance_km`, `network_km`, `elev_diff_m`, `is_ebike`, `battery_start`, `type`, `same_station`, `is_flicker`, `from_loose`, `to_loose`, `is_long`, `too_fast` |
+| `rebalancing_observed` | `from`, `to`, `t_departure`, `t_arrival`, `n_bikes`, `bikes`, `distance_km`, `network_km`, `duration_min` |
+| `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use`, `away_long`, `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
+| `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` |
+| `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, statystyki (`share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`), `n_{kategoria}_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m`, `elevation_m` |
+| `context_hourly` | `time`, `local_hour`, `dow`, `day_type`, pogoda, jakość powietrza, `sun_elevation`, `is_dark`, flagi kalendarza (`is_holiday`, `is_long_weekend`, `school_break`, `{uczelnia}_period`, `n_uni_classes` …), `n_events`, `n_events_large`, `congestion`, `n_incidents` |
+
+</details>
+
+## Wstępne wyniki
+
+*Na danych z 22–26.10.2026 (ok. 4 doby, w tym 1 pełny dzień roboczy) – liczby zmienią się po zebraniu kolejnych tygodni.*
+
+- **~9–12 tys. przejazdów na dobę**; w dzień roboczy szczyt poranny o 8:00 (~580/h) i popołudniowy o 16:00 (~1240/h), w weekend ruch zaczyna się później.
+- **Krótkie przejazdy**: mediana 15 min i 2,0 km po drogach rowerowych; 72% przejazdów trwa ≤ 20 min – tyle, ile jest darmowe w cenniku.
+- **Puste stacje są skoncentrowane**: Gini czasu pustek = 0,74; 10% stacji odpowiada za ponad połowę czasu, gdy stacje są puste, a połowa stacji nie była pusta ani razu.
+- **Przepełnienie jest częste i dozwolone**: ok. 40% pomiarów ma więcej rowerów niż stojaków – stacje Veturilo 3.0 przyjmują rowery ponad pojemność.
+- **Operator relokuje ok. 65 grup rowerów na dobę** (zwykle 4–5 rowerów).
+- **E-rowery** to ~8% stojących rowerów, ale ~19% przejazdów.
+- **Flota nie jest stała**: operator deklaruje 4566 rowerów, w obiegu widać naraz ok. 4100.
+- Przykład wpływu pogody: w niedzielę 25.10 po rozpoczęciu deszczu (~18:00) liczba przejazdów spadła kilkukrotnie względem soboty.
+
+## Hipotezy
+
+| | Hipoteza | Stan |
+|---|---|---|
+| **H2** | Problem pustych stacji jest skoncentrowany na niewielkiej części stacji | wstępnie potwierdzona (Gini 0,74) – [notebook](notebooks/puste_i_przepelnione_stacje.ipynb) |
+| | Opad i zmrok obniżają popyt silniej niż sama temperatura | do sprawdzenia (`context_hourly`) |
+| | E-rowery tworzą osobny strumień popytu (dłuższe trasy, wybór zależny od baterii) | do sprawdzenia (`trips`) |
+| | Próg 20 min darmowej jazdy kształtuje rozkład czasu przejazdu | widoczne w danych; do uwzględnienia w modelu |
+| | Relokacje operatora nie nadążają za stacjami, które najczęściej się opróżniają | do sprawdzenia (`rebalancing_observed` × `empty_periods`) |
+
+Analiza opisowa: [`notebooks/analiza_opisowa.ipynb`](notebooks/analiza_opisowa.ipynb).
+
+## Uwagi do modelu
+
+- **Pojemność jest miękka** – zwroty nie są blokowane przy `docks = 0`.
+- **Popyt na pustych stacjach jest niewidoczny** – λ szacować z czasu, gdy na stacji były rowery (`departure_rate_per_h`).
+- Czas zdarzeń znany z dokładnością do 5 min; `duration_min` zawyża czas jazdy średnio o ok. 5 min.
+- Z `trips` odfiltruj `is_flicker`, `too_fast`, `is_long` (w `station_hourly` już odfiltrowane).
+- Dni nietypowe: 31.10–2.11, 11.11, 24–26.12; zmiana czasu 25.10 – liczyć w UTC.
+- Do kalibracji potrzeba ≥ 2 tygodni danych + osobnego tygodnia do walidacji.
+
+<details>
+<summary>Zbieranie danych – szczegóły techniczne</summary>
+
+Workflow [`.github/workflows/collect.yml`](.github/workflows/collect.yml) działa łańcuchowo: każdy run mierzy co 5 min przez 57 min i uruchamia następny; cron co godzinę wznawia łańcuch, gdyby się przerwał. Wymaga publicznego repozytorium i uprawnień *Read and write* dla workflow. Ręcznie: Actions → *Zbieranie danych Veturilo* → *Run workflow* (`iterations = 1` – test, `0` – pełna godzina). TomTom wymaga sekretu `TOMTOM_API_KEY` (pomiar co 30 min, w darmowym limicie); dane ZTM (`WARSAW_API_KEY`) nie są obecnie zbierane.
+
+Duże pliki (`data/static/osm/`, `data/static/cache/`) i `processed/` nie są w repozytorium – odtwarzają je `fetch_static` i `build`.
+
+</details>

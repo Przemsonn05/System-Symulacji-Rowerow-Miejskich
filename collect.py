@@ -386,8 +386,12 @@ ZTM_URL = (
 CELL_LAT, CELL_LON = 0.005, 0.008
 # Punkty pomiaru predkosci TomTom: glowne arterie, przy ktorych stoja stacje.
 # TomTom dopasowuje punkt do najblizszego odcinka drogi (zapisujemy jego poczatek i koniec).
+# 26.10.2026: dwa punkty przeniesione na glowna jezdnie (stare dopasowywaly sie do
+# bocznych odcinkow i prawie nie zmienialy predkosci); nowe nazwy, zeby nie mieszac serii:
+#   jerozolimskie_rondo_de_gaulle (52.2316, 21.0245) -> jerozolimskie_centrum
+#   grochowska_praga (52.2440, 21.0890, ul. Ostroleka) -> grochowska_kobielska
 TOMTOM_POINTS = [
-    ("jerozolimskie_rondo_de_gaulle", 52.2316, 21.0245),
+    ("jerozolimskie_centrum", 52.23121, 21.01855),
     ("marszalkowska_pl_konstytucji", 52.2215, 21.0155),
     ("niepodleglosci_pole_mokotowskie", 52.2120, 21.0060),
     ("pulawska_mokotow", 52.1930, 21.0230),
@@ -395,7 +399,7 @@ TOMTOM_POINTS = [
     ("trasa_lazienkowska", 52.2190, 21.0400),
     ("solidarnosci_wola", 52.2440, 20.9980),
     ("prymasa_tysiaclecia", 52.2350, 20.9580),
-    ("grochowska_praga", 52.2440, 21.0890),
+    ("grochowska_kobielska", 52.24534, 21.08513),
     ("modlinska_bialoleka", 52.3000, 20.9900),
 ]
 WARSAW_BBOX = "20.85,52.10,21.27,52.37"  # minLon,minLat,maxLon,maxLat

@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+
+# Wyniki build - odtwarzane poleceniem python -m src.data.build
+processed/
+
+# Duze pliki OSM (grafy, cache Overpass) - odtwarzane przez fetch_static --only osm
+data/static/osm/
+# Surowe pobrane pliki (GTFS ~100 MB, populacja ~50 MB) - odtwarzane przez fetch_static
+data/static/cache/

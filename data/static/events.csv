@@ -1,0 +1,24 @@
+event_id,name,venue,lat,lon,category,scale,certain,source,note,start_utc,end_utc,end_estimated
+1,Legia – Lech Poznań (Ekstraklasa),Stadion Wojska Polskiego (Legia),52.2206,21.0405,match,large,True,https://legia.com/en/mecze,,2026-10-25 16:30:00+00:00,2026-10-25 18:30:00+00:00,True
+2,Legia – Raków Częstochowa (Ekstraklasa),Stadion Wojska Polskiego (Legia),52.2206,21.0405,match,large,True,https://legia.com/en/mecze,,2026-11-08 16:30:00+00:00,2026-11-08 18:30:00+00:00,True
+3,Legia – Wieczysta Kraków (Ekstraklasa),Stadion Wojska Polskiego (Legia),52.2206,21.0405,match,large,False,https://legia.com/en/mecze,"data potwierdzona, godzina nieogłoszona – przyjęto 18:00",2026-11-28 17:00:00+00:00,2026-11-28 19:00:00+00:00,True
+4,Legia – Pogoń Szczecin (Ekstraklasa),Stadion Wojska Polskiego (Legia),52.2206,21.0405,match,large,False,https://legia.com/en/mecze,"data potwierdzona, godzina nieogłoszona – przyjęto 18:00",2026-12-12 17:00:00+00:00,2026-12-12 19:00:00+00:00,True
+5,Wystawa budowli z klocków LEGO,PGE Narodowy,52.2395,21.0458,expo,medium,False,https://www.pgenarodowy.pl/,wystawa wielodniowa – w kalendarium tylko data otwarcia,2026-10-22 08:00:00+00:00,2026-10-22 16:00:00+00:00,False
+6,Audio Video Show 2026,PGE Narodowy,52.2395,21.0458,expo,medium,False,https://www.pgenarodowy.pl/,godzina zamknięcia szacowana,2026-10-25 09:00:00+00:00,2026-10-25 17:00:00+00:00,False
+7,The Hack Summit 2026,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-11-06 07:00:00+00:00,2026-11-06 16:00:00+00:00,True
+8,ForFin 2026,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-11-20 08:00:00+00:00,2026-11-20 17:00:00+00:00,True
+9,Wielka Fabryka Elfów,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-11-21 08:00:00+00:00,2026-11-21 16:00:00+00:00,True
+10,Wielka Fabryka Elfów,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-11-22 08:00:00+00:00,2026-11-22 16:00:00+00:00,True
+11,Warsaw Wine Experience 2026,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-11-22 11:00:00+00:00,2026-11-22 19:00:00+00:00,True
+12,Warsaw Wine Experience 2026,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-11-23 09:00:00+00:00,2026-11-23 17:00:00+00:00,True
+13,Wielka Fabryka Elfów,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-11-23 13:30:00+00:00,2026-11-23 21:30:00+00:00,True
+14,Data Science Summit 2026,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-11-27 07:00:00+00:00,2026-11-27 16:00:00+00:00,True
+15,ELEVATE Health & Longevity Summit,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-11-28 09:00:00+00:00,2026-11-28 18:00:00+00:00,True
+16,ELEVATE Health & Longevity Summit,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-11-29 09:00:00+00:00,2026-11-29 18:00:00+00:00,True
+17,Oh My Hack 2026,PGE Narodowy,52.2395,21.0458,conference,medium,True,https://www.pgenarodowy.pl/,,2026-12-02 07:00:00+00:00,2026-12-02 16:00:00+00:00,True
+18,WawaGra – planszówki na PGE Narodowym,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-12-05 09:00:00+00:00,2026-12-05 17:00:00+00:00,True
+19,WawaGra – planszówki na PGE Narodowym,PGE Narodowy,52.2395,21.0458,expo,medium,True,https://www.pgenarodowy.pl/,,2026-12-06 09:00:00+00:00,2026-12-06 17:00:00+00:00,True
+20,Wszystkich Świętych – ruch przy cmentarzach,Cmentarze Powązkowskie,52.2556,20.98,city,large,False,https://www.um.warszawa.pl/,coroczne; godziny i skala szacowane (ograniczenia ruchu ZDM przy cmentarzach),2026-10-31 07:00:00+00:00,2026-11-02 19:00:00+00:00,False
+21,Bieg Niepodległości (10 km),Plac Defilad / PKiN,52.2318,21.006,city,large,False,https://warszawa19115.pl/-/36.-bieg-niepodleglosci,"Mila 10:00, bieg główny 11:11 (potwierdzone); lokalizacja startu i koniec szacowane",2026-11-11 09:00:00+00:00,2026-11-11 12:30:00+00:00,False
+22,Marsz Niepodległości,Rondo Dmowskiego – trasa do PGE Narodowego,52.2306,21.0118,city,large,False,https://pl.wikipedia.org/wiki/Marsz_Niepodleg%C5%82o%C5%9Bci,coroczny 11.11; godzina i trasa 2026 niepotwierdzone (zwykle Rondo Dmowskiego → PGE Narodowy),2026-11-11 13:00:00+00:00,2026-11-11 18:00:00+00:00,False
+23,Jarmark bożonarodzeniowy przy PKiN,Plac Defilad / PKiN,52.2318,21.006,city,medium,False,https://pik.warszawa.pl/inne/jarmark-bozonarodzeniowy-w-warszawie/,"daty z serwisu PIK z możliwą pomyłką roku; codziennie, godziny szacowane",2026-11-21 11:00:00+00:00,2027-01-03 20:00:00+00:00,False
