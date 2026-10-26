@@ -356,7 +356,7 @@ def main(argv=None):
                 from . import osm
 
                 log("osm: pobieranie (pierwszy raz kilka-kilkanascie minut)...")
-                osm.fetch_all(log)
+                osm.fetch_all(log, step in forced)
         except Exception as e:  # jeden krok nie blokuje pozostalych
             failed.append(step)
             log(f"{step}: BLAD {type(e).__name__}: {e}")

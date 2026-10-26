@@ -283,7 +283,9 @@ def fetch_graphs(ox, polygon, log):
     shutil.rmtree(tmp, ignore_errors=True)
 
 
-def fetch_all(log):
+def fetch_all(log, force_graphs=False):
+    from .config import STATIC
+
     ox = _setup()
     full = boundary(ox).geometry.iloc[0]
     # Pelna granica ma tysiace wierzcholkow, a Overpass dostaje poligon przy kazdym
@@ -294,4 +296,9 @@ def fetch_all(log):
     fetch_pois(ox, polygon, log)
     fetch_cycleways(ox, polygon, log)
     fetch_buildings(ox, log)
+    # Grafy sluza tylko do macierzy odleglosci miedzy stacjami, ktora jest w repo -
+    # budujemy je (pobranie ~120 MB) tylko, gdy jej brak albo na zadanie (--force osm).
+    if (STATIC / "station_network_distance.parquet").exists() and not force_graphs:
+        log("  OSM grafy: pomijam - station_network_distance.parquet jest w repo (--force osm, by zbudowac)")
+        return
     fetch_graphs(ox, polygon, log)

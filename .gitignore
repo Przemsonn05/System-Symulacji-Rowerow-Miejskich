@@ -5,7 +5,13 @@ __pycache__/
 # Wyniki build - odtwarzane poleceniem python -m src.data.build
 processed/
 
-# Duze pliki OSM (grafy, cache Overpass) - odtwarzane przez fetch_static --only osm
-data/static/osm/
+# Duze pliki OSM (grafy ~130 MB, cache Overpass, logi) - odtwarzane przez fetch_static --only osm.
+# Male pliki potrzebne do cech stacji sa w repo, zeby nie trzeba bylo pobierac OSM
+# (Overpass bywa przeciazony). "/*" zamiast "/", bo inaczej wyjatki "!" nie dzialaja.
+data/static/osm/*
+!data/static/osm/pois.parquet
+!data/static/osm/cycleways.parquet
+!data/static/osm/buildings_srodmiescie.parquet
+!data/static/osm/boundary.geojson
 # Surowe pobrane pliki (GTFS ~100 MB, populacja ~50 MB) - odtwarzane przez fetch_static
 data/static/cache/
