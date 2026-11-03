@@ -44,9 +44,9 @@ Sposób zalecany (nowy projekt):
    ```
 4. W Unity: **File → New Scene → Basic (URP)** albo **Empty** → **Play**. Pytanie o Input System przy otwarciu: obie odpowiedzi działają.
 
-Alternatywa: Unity Hub → **Add → Add project from disk** → folder `unity/` z repozytorium. Folder nie ma jeszcze `ProjectSettings/` ani `Packages/`, więc Hub może go nie przyjąć – wtedy użyj sposobu powyżej.
+Alternatywa: Unity Hub → **Add → Add project from disk** → folder `unity/` z repozytorium (Unity 6000.0.85f1; `ProjectSettings/`, `Packages/` i pliki `.meta` są w repozytorium). Dane trzeba wyeksportować przed Play (`python -m src.viz.export`).
 
-*(raz, dla zespołu)* po pierwszym udanym uruchomieniu zapisz scenę jako `Assets/Scenes/Veturilo.unity` i dodaj do repozytorium `ProjectSettings/`, `Packages/`, scenę oraz pliki `.meta` (np. do folderu `unity/`), żeby wszyscy mieli ten sam projekt.
+*(raz, dla zespołu)* zapisz scenę jako `Assets/Scenes/Veturilo.unity` i dodaj ją do repozytorium, żeby wszyscy mieli ten sam punkt startu.
 
 **Domyślny dzień.** Po starcie otwiera się ostatni dzień z pełnymi danymi. Do scenariusza pokazu (piątek 23.10) przełącz dzień klawiszami `,` / `.` albo przyciskami `<` `>` na osi czasu.
 

@@ -1,191 +1,211 @@
 # Symulacja systemu rowerów miejskich Veturilo
 
-Projekt z przedmiotu *Symulacja systemów dyskretnych*: stochastyczna symulacja zdarzeń dyskretnych (DES) systemu roweru miejskiego Veturilo w Warszawie. Model jest kalibrowany i walidowany na **własnych danych**: co 5 minut zapisujemy stan wszystkich 348 stacji razem z numerami stojących na nich rowerów, co pozwala odtworzyć każdy przejazd.
+Projekt z przedmiotu *Symulacja systemów dyskretnych*: stochastyczna symulacja zdarzeń dyskretnych (DES) systemu roweru miejskiego Veturilo w Warszawie, kalibrowana na **własnych danych**. Co 5 minut zapisujemy stan wszystkich 348 stacji razem z **numerami stojących na nich rowerów**. Dzięki temu odtwarzamy każdy przejazd (skąd, dokąd, kiedy) i każdą relokację operatora, chociaż operator nie publikuje takich danych.
 
-**Pytania projektu:** jak powstaje problem pustych i przepełnionych stacji, od czego zależy popyt (pora dnia, pogoda, kalendarz, otoczenie stacji) i jak różne strategie relokacji rowerów wpływają na utracony popyt.
+**Pytania projektu**
+1. Jak powstaje problem pustych (i przepełnionych) stacji i gdzie się koncentruje?
+2. Od czego zależy popyt: pora dnia, typ dnia, pogoda, kalendarz (uczelnie, szkoły, święta), otoczenie stacji?
+3. Jak różne strategie relokacji rowerów zmieniają utracony popyt (klient przychodzi na pustą stację)?
 
-## Stan projektu
+## Stan prac (3.11.2026)
 
 | Etap | Stan | Gdzie |
 |---|---|---|
-| Zbieranie danych live (co 5 min, od 22.10.2026) | ✅ działa samo, nieprzerwanie od 23.10 | [`collect.py`](collect.py), GitHub Actions |
-| Dane statyczne i historyczne | ✅ gotowe, w repozytorium | `data/static/` |
-| Preprocessing: stany stacji, przejazdy, relokacje, kontekst, cechy stacji | ✅ | `python -m src.data.build` |
-| Analiza opisowa i hipoteza H2 | ✅ wstępnie (4 doby danych) – powtórzyć ok. 5.11 na ~2 tygodniach | `notebooks/` |
-| Model popytu, macierz OD, kalibracja | ⏳ następny etap | – |
-| Symulacja DES i scenariusze relokacji | ⏳ | – |
-| Wizualizacja 3D (Streamlit + pydeck) | ⏳ | – |
+| Zbieranie danych live co 5 min | ✅ działa samo od 22.10, bez luk od 26.10 (pokrycie 97,7%) | [`collect.py`](collect.py), GitHub Actions |
+| Dane statyczne i historyczne (kalendarz, wydarzenia, pogoda, OSM, populacja, komunikacja) | ✅ w repozytorium | `data/static/` |
+| Preprocessing: przejazdy, relokacje, puste stacje, kontekst, cechy stacji, raport jakości | ✅ | `python -m src.data.build` |
+| Analiza opisowa + test hipotezy H2 | ✅ wstępnie; przeliczyć na pełnych 2 tygodniach (~5.11) | `notebooks/` |
+| Wizualizacja 3D odtwarzająca rzeczywisty dzień | ✅ prototyp | `unity/`, `python -m src.viz.export` |
+| Model popytu λ(stacja, godzina), macierz OD, kalibracja | ⏳ następny etap | – |
+| Symulacja DES i porównanie strategii relokacji | ⏳ | – |
 
-## Szybki start
+**Ilość danych.** Na 3.11 mamy 12 pełnych dób: 7 dni roboczych, 2 soboty, 2 niedziele/święta, ok. 104 tys. przejazdów. To wystarcza do analizy opisowej i modelu dla dni roboczych. Na weekendy i wpływ pogody potrzeba więcej danych: na razie temperatura to tylko 1–14 °C, a opad wystąpił w ok. 20 godzinach. Planowo: kalibracja na ≥ 2 tygodniach + osobny tydzień do walidacji.
 
-```bash
-git pull                              # nowe dane zbierają się co godzinę
-pip install -r requirements.txt
-python -m src.data.build              # ok. 1 min -> processed/
-```
+## Ściąga na prezentację
 
-To wystarczy – wszystkie dane statyczne (kalendarz, OSM, populacja, komunikacja, odległości między stacjami) są w repozytorium. `python -m src.data.fetch_static` trzeba uruchomić tylko, żeby dociągnąć pogodę i jakość powietrza z ostatnich dni (lub odtworzyć dane statyczne od zera).
-
-```python
-import pandas as pd
-hourly = pd.read_parquet("processed/station_hourly.parquet")      # popyt: stacja x godzina
-ctx = pd.read_parquet("processed/context_hourly.parquet")          # pogoda, kalendarz, ...
-panel = hourly.merge(ctx, left_on="hour", right_on="time", how="left")
-
-trips = pd.read_parquet("processed/trips.parquet")
-user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["too_fast"] & ~trips["is_long"]]
-```
-
-**Czas we wszystkich plikach jest w UTC.** Godzinę i dzień tygodnia w czasie warszawskim liczyć przez `tz_convert("Europe/Warsaw")` (w `context_hourly` są gotowe `local_hour`, `local_date`, `day_type`).
-
-## Struktura repozytorium
-
-```
-collect.py                      zbieranie danych live (uruchamiane przez GitHub Actions)
-.github/workflows/collect.yml   harmonogram zbierania
-src/data/                       przygotowanie danych
-  fetch_static.py               pobranie danych statycznych -> data/static/
-  build.py                      przetworzenie danych live -> processed/
-  trips.py                      odtwarzanie przejazdów z numerów rowerów
-  aggregates.py                 tabele pochodne (stacja x godzina, puste stacje, flota)
-  context.py, features.py       kontekst godzinowy, cechy otoczenia stacji
-  calendar_data.py, events_data.py   daty kalendarzy i wydarzeń ze źródłami
-notebooks/                      analiza opisowa, hipoteza H2
-data/                           dane surowe (dopisywane automatycznie) + data/static/
-processed/                      wyniki build (poza repozytorium – odtwarza je build)
-```
+1. **Dane są nasze, nie gotowe.** Feed Nextbike pokazuje tylko „ile rowerów stoi teraz”. Zbieramy go co 5 min z numerami rowerów i z tego **sami odtwarzamy przejazdy** (rower znika z A i pojawia się w B).
+2. **Dane są wiarygodne.** W 98,5% 5-minutowych odstępów zmiana liczby rowerów na stacji zgadza się z odtworzonymi przyjazdami i odjazdami (bilans przepływów w `quality_report.md`). Artefakty feedu (migotanie, przeskoki GPS, nierealne prędkości) są oznaczone flagami.
+3. **Skala:** ok. 10 tys. przejazdów w dzień roboczy, 7 tys. w weekend; ok. 70 relokacji operatora na dobę.
+4. **Problem do rozwiązania:** puste stacje są skoncentrowane (H2: Gini 0,68). Popytu na pustej stacji nie widać w danych (popyt ocenzurowany), więc szacujemy go z czasu, gdy rowery były dostępne.
+5. **Kontekst:** każda godzina ma pogodę, zmrok, typ dnia, kalendarze uczelni i szkół, wydarzenia i korki TomTom. Każda stacja ma cechy otoczenia (POI, metro, uczelnie, mieszkańcy, komunikacja, wysokość terenu).
+6. **Wizualizacja 3D** odtwarza rzeczywisty dzień, a w tym samym formacie przyjmie wynik symulacji DES, więc pokażemy model obok rzeczywistości.
 
 ## Dane
 
-### Dane zbierane na żywo (`data/`)
+### Dane live (`data/`, dopisywane automatycznie co godzinę)
 
-[`collect.py`](collect.py) pobiera oficjalny feed Nextbike (`nextbike-live.json`, Warszawa) i dopisuje pliki dzienne (UTC):
+Po co: z nich odtwarzamy **przejazdy, relokacje i stan stacji w czasie**, czyli wszystko, czego potrzebuje symulacja (popyt, czasy jazdy, macierz OD, strategia operatora, stan początkowy, walidacja).
 
-| Folder | Co zawiera | Częstość |
-|---|---|---|
-| `status/` | stan każdej stacji: liczba rowerów, wolne stojaki, czy stacja działa, **numery rowerów**, bateria e-rowerów | 5 min |
-| `loose/` | rowery zostawione poza stacjami (numer, pozycja, bateria) | 5 min |
-| `info/` | stacje: nazwa, położenie, pojemność (liczba stojaków), typ terminala | dziennie |
-| `system/` | wielkość floty deklarowana przez operatora, cennik, typy rowerów | dziennie |
-| `traffic_flow/`, `incidents/` | TomTom: prędkość na 10 głównych arteriach, utrudnienia drogowe | 30 min |
+| Folder | Co zawiera | Częstość | Źródło |
+|---|---|---|---|
+| `status/` | każda stacja: liczba rowerów i e-rowerów, wolne stojaki, czy działa, **numery rowerów**, bateria e-rowerów | 5 min | Nextbike |
+| `loose/` | rowery zostawione poza stacjami (numer, pozycja, bateria) | 5 min | Nextbike |
+| `info/` | stacje: nazwa, położenie, pojemność, typ terminala | dziennie | Nextbike |
+| `system/` | flota deklarowana przez operatora, cennik, typy rowerów | dziennie | Nextbike |
+| `traffic_flow/` | prędkość vs prędkość swobodna na 10 głównych arteriach | 30 min | TomTom |
+| `incidents/` | utrudnienia i zamknięcia dróg | 30 min | TomTom |
 
-Dane od 22.10.2026; luki tylko 22.10 przed uruchomieniem łańcucha zbierania. Dane sprzed 23.10 08:00 UTC nie mają części pól (np. stan aktywności stacji, bateria) – `build` obsługuje to automatycznie. 26.10 dwa punkty TomTom przeniesiono na główne jezdnie (nowe nazwy `jerozolimskie_centrum`, `grochowska_kobielska`).
+Pliki dzienne w UTC. Dane sprzed 23.10 ok. 10:00 nie mają części pól (aktywność stacji, bateria); `build` obsługuje to automatycznie.
 
 ### Dane statyczne i historyczne (`data/static/`)
 
+Po co: **wyjaśniają popyt** (dlaczego na tej stacji, o tej porze, przy tej pogodzie) i pozwalają budować scenariusze (np. deszczowy dzień, sesja na uczelniach, mecz na Narodowym).
+
 | Plik | Co zawiera | Źródło |
 |---|---|---|
-| `calendar.csv` | 1.10.2026–30.06.2027 dzień po dniu: typ dnia, święta, długie weekendy, ferie i przerwy szkolne (mazowieckie), okresy zajęć/sesji/przerw UW, PW, SGH, WUM | dokumenty uczelni, MEN – [źródła dat](data/static/calendar_sources.md) |
-| `events.csv` | mecze Legii, wydarzenia na PGE Narodowym, wydarzenia miejskie do 31.12.2026 (ze źródłem i flagą pewności) | strony organizatorów |
-| `weather_hourly.parquet`, `air_quality_hourly.parquet` | pogoda (temperatura, opad, wiatr, zachmurzenie) i jakość powietrza co godzinę | Open-Meteo |
-| `osm/` | POI (restauracje, bary, biura, uczelnie, metro, ...), drogi rowerowe, budynki Śródmieścia, granica miasta | OpenStreetMap |
-| `station_network_distance.parquet` | odległość po drogach rowerowych między każdą parą stacji | graf OSM |
-| `population_h3.parquet` | liczba mieszkańców w heksagonach ~400 m | Kontur Population |
-| `transit_stops.parquet` | przystanki z liczbą odjazdów w typową środę (autobus, tramwaj, metro, SKM) | GTFS ZTM (mkuran.pl) |
+| `calendar.csv` (+ `calendar_sources.md`) | 1.10.2026–30.06.2027 dzień po dniu: typ dnia, święta, długie weekendy, ferie i przerwy szkolne, okresy zajęć/sesji UW, PW, SGH, WUM | MEN, dokumenty uczelni |
+| `events.csv` | mecze Legii, wydarzenia na PGE Narodowym i miejskie do 31.12.2026 (źródło + flaga pewności) | strony organizatorów |
+| `weather_hourly.parquet` | temperatura, opad, wiatr, zachmurzenie co godzinę | Open-Meteo (archiwum) |
+| `air_quality_hourly.parquet` | PM2.5, PM10, NO₂, europejski AQI co godzinę | Open-Meteo |
+| `osm/` | POI (lokale, biura, uczelnie, metro…), drogi rowerowe, budynki Śródmieścia, granica miasta | OpenStreetMap |
+| `station_network_distance.parquet` | odległość po drogach rowerowych dla każdej pary stacji | graf OSM |
+| `population_h3.parquet` | mieszkańcy w heksagonach ~400 m | Kontur Population |
+| `transit_stops.parquet` | przystanki z liczbą odjazdów w typową środę | GTFS ZTM |
 | `elevation.csv` | wysokość terenu każdej stacji | Open-Meteo (Copernicus) |
 
-Daty niepotwierdzone w dokumentach źródłowych są oznaczone jako niepewne (zajęcia i przerwy SGH, dzień rektorski WUM, 8 z 23 wydarzeń).
+## Przetwarzanie (`python -m src.data.build`, ok. 1–2 min)
 
-## Przygotowanie danych (`python -m src.data.build`)
+1. **Czyszczenie pomiarów:** duplikaty, stacje wyłączone, oznaczenie błędnych odczytów (`is_spike`, `numbers_mismatch`).
+2. **Odtworzenie przejazdów** z numerów rowerów (czas ±5 min). Odrzucane są przeskoki GPS; flagi: `is_flicker` (artefakt feedu), `too_fast` (> 30 km/h), `is_long` (> 4 h, zwykle serwis), `from_loose`/`to_loose` (poza stacją).
+3. **Relokacje operatora:** ≥ 4 rowery przeniesione razem między tą samą parą stacji (`type = service`).
+4. **Tabele dla modelu:** popyt stacja × godzina z czasem dostępności roweru, okresy pustych stacji, flota w czasie.
+5. **Kontekst godzinowy:** pogoda, jakość powietrza, położenie słońca, kalendarze, wydarzenia, wskaźnik korków (`1 − prędkość/prędkość swobodna`, średnia z 10 korytarzy).
+6. **Cechy stacji:** POI w promieniu 300 m, odległość do metra, uczelni, dworca, centrum, mieszkańcy w promieniu 500 m, odjazdy komunikacji, wysokość.
+7. **Raport jakości** `processed/quality_report.md`: luki, artefakty, bilans przepływów.
 
-1. **Czyszczenie pomiarów** – wczytanie obu formatów plików, usunięcie duplikatów (< 60 s po poprzednim pomiarze), usunięcie stacji wyłączonych, oznaczenie błędnych odczytów (`is_spike` – chwilowy skok liczby rowerów; `numbers_mismatch` – liczba numerów ≠ liczba rowerów).
-2. **Odtworzenie przejazdów** – rower znika ze stacji A i pojawia się na stacji B → przejazd A → B. Czas znany z dokładnością ±5 min. Odrzucane są przeskoki GPS (zmiana stacji bez zniknięcia, < 0,5 km). Oznaczane są:
-   - `same_station` – powrót na tę samą stację, w tym `is_flicker` – artefakt feedu (rower „znika” na jeden pomiar),
-   - `from_loose` / `to_loose` – przejazd z/do miejsca poza stacją,
-   - `too_fast` – nierealna prędkość > 30 km/h (błędna pozycja),
-   - `is_long` – dłużej niż 4 h (zwykle wycofanie do serwisu).
-3. **Relokacje operatora** (`type = service`) – ≥ 4 rowery przeniesione razem między tą samą parą stacji w tym samym odstępie pomiarów.
-4. **Tabele dla modelu** – popyt stacja × godzina z czasem dostępności roweru, okresy pustych stacji, flota w czasie.
-5. **Kontekst godzinowy** – pogoda, zmrok, typ dnia, kalendarze, wydarzenia, wskaźnik korków TomTom, utrudnienia. Wskaźnik korków: dla każdego pomiaru `1 − prędkość / prędkość swobodna`, średnia w korytarzu (ulicy), potem średnia z 10 korytarzy. Punkty przeniesione 26.10 (Grochowska, Al. Jerozolimskie) są łączone ze swoimi poprzednikami w jeden korytarz, więc skład wskaźnika się nie zmienia.
-6. **Cechy stacji** – liczba POI w promieniu 300 m, odległość do metra, uczelni, dworca i centrum, drogi rowerowe, mieszkańcy w promieniu 500 m, odjazdy komunikacji, wysokość terenu.
-7. **Kontrola jakości** – `processed/quality_report.md`: luki, artefakty, **bilans przepływów** (w 98,5% odstępów zmiana liczby rowerów na stacji zgadza się z odtworzonymi przejazdami).
+### Wyniki (`processed/`, poza repozytorium – odtwarza je `build`)
 
-### Pliki wynikowe (`processed/`) i dla kogo
+| Plik | Zawartość | Do czego |
+|---|---|---|
+| `station_hourly.parquet` | stacja × godzina: wypożyczenia, zwroty, relokacje, minuty pustej stacji, `departure_rate_per_h` | **kalibracja popytu λ** |
+| `trips.parquet` | przejazdy: skąd, dokąd, kiedy, czas, dystans (prosty i po drogach), e-rower, user/service | **macierz OD, czasy jazdy** |
+| `observed_timeseries.parquet` | stan każdej stacji co 5 min | **stan początkowy, walidacja** |
+| `rebalancing_observed.parquet` | relokacje: czas, skąd, dokąd, ile rowerów | **strategia bazowa operatora** |
+| `fleet_timeseries.parquet` | rowery na stacjach / poza / w drodze / poza obiegiem vs flota deklarowana | **wielkość floty** |
+| `empty_periods.parquet` | okresy pustych stacji | korekta popytu ocenzurowanego |
+| `context_hourly.parquet` | pogoda, kalendarz, wydarzenia, korki co godzinę | model popytu, scenariusze |
+| `stations.parquet` | stacje: położenie, pojemność, statystyki, cechy otoczenia | model popytu, mapy |
 
-| Plik | Zawartość | Do czego | Kto |
-|---|---|---|---|
-| `station_hourly.parquet` | stacja × godzina: wypożyczenia, zwroty, relokacje, minuty z pustą stacją, `departure_rate_per_h` (wypożyczenia na godzinę dostępności roweru) | **kalibracja popytu λ** | Osoba 2 |
-| `trips.parquet` | przejazdy: skąd, dokąd, kiedy, czas, dystans prosty i po drogach, e-rower, typ user/service | **macierz OD, czasy jazdy** | Osoba 2 |
-| `observed_timeseries.parquet` | stan każdej stacji co 5 min | **stan początkowy, walidacja** | Osoba 2 |
-| `rebalancing_observed.parquet` | relokacje: czas, stacja źródłowa i docelowa, liczba rowerów | **obserwowana strategia operatora** | Osoba 2, 3 |
-| `fleet_timeseries.parquet` | rowery na stacjach / poza stacjami / w drodze / poza obiegiem vs flota operatora | **wielkość floty** | Osoba 2, 3 |
-| `empty_periods.parquet` | okresy pustych stacji (popyt ocenzurowany) | korekta popytu | Osoba 2 |
-| `context_hourly.parquet` | pogoda, kalendarz, wydarzenia, korki co godzinę | model popytu, scenariusze | Osoba 2, 3 |
-| `stations.parquet` | stacje: położenie, pojemność, statystyki, cechy otoczenia | model popytu, mapy | wszyscy |
-
-Pogrubione zastosowania wystarczają do zbudowania symulacji DES. Kontekst i cechy stacji służą do wyjaśniania popytu i scenariuszy – nie trzeba ich używać w pierwszej wersji modelu.
+Pogrubione zastosowania wystarczą do pierwszej wersji DES. **Czas we wszystkich plikach jest w UTC.** W `context_hourly` są gotowe `local_hour`, `local_date`, `day_type`.
 
 <details>
 <summary>Pełna lista kolumn</summary>
 
 | Plik | Kolumny |
 |---|---|
-| `observed_timeseries` | `time`, `station_id`, `bikes`, `docks`, `ebikes`, `ebikes_low` (bateria < 20%), `is_empty` (bikes = 0), `is_overfull` (bikes > capacity – dozwolone), `is_spike` (pomijać), `numbers_mismatch` |
+| `observed_timeseries` | `time`, `station_id`, `bikes`, `docks`, `ebikes`, `ebikes_low` (bateria < 20%), `is_empty`, `is_overfull` (bikes > capacity – dozwolone), `is_spike` (pomijać), `numbers_mismatch` |
 | `station_hourly` | `station_id`, `hour`, `departures`, `arrivals`, `departures_ebike`, `service_out`, `service_in`, `minutes_observed`, `minutes_empty`, `minutes_overfull`, `minutes_available`, `departure_rate_per_h`, `mean_bikes`, `min_bikes`, `mean_ebikes` |
-| `trips` | `bike`, `from_station`, `to_station` (id stacji albo `loose:<id>`), `from_type`, `to_type` (station/loose), `from_lat`, `from_lon`, `to_lat`, `to_lon`, `t_departure` (ostatni pomiar w A), `t_arrival` (pierwszy w B), `duration_min`, `distance_km` (w linii prostej), `network_km` (po drogach rowerowych), `elev_diff_m`, `is_ebike`, `battery_start`, `type` (user/service), `same_station`, `is_flicker`, `from_loose`, `to_loose`, `is_long`, `too_fast` |
+| `trips` | `bike`, `from_station`, `to_station` (id stacji albo `loose:<id>`), `from_type`, `to_type`, `from_lat`, `from_lon`, `to_lat`, `to_lon`, `t_departure`, `t_arrival`, `duration_min`, `distance_km`, `network_km`, `elev_diff_m`, `is_ebike`, `battery_start`, `type` (user/service), `same_station`, `is_flicker`, `from_loose`, `to_loose`, `is_long`, `too_fast` |
 | `rebalancing_observed` | `from_station`, `to_station`, `t_departure`, `t_arrival`, `n_bikes`, `bikes`, `distance_km`, `network_km`, `duration_min` |
-| `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use` (w drodze < 4 h), `away_long` (> 4 h), `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
-| `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` (koniec nieznany) |
-| `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, `terminal_type`, statystyki (`share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`), `n_{restaurant,bar,cafe,office,university,school,mall,attraction,park,metro,train_station,tram_stop}_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `n_transit_stops_300m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m` (tylko Śródmieście), `elevation_m` |
-| `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `snowfall`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `{…}_classes_day`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion` (średnia z 10 korytarzy TomTom), `congestion_max`, `congestion_stable` (tylko 8 korytarzy bez zmiany punktu – kontrola odporności), `n_corridors`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
+| `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use` (< 4 h), `away_long` (> 4 h), `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
+| `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` |
+| `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, `terminal_type`, `share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`, `n_<typ POI>_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `n_transit_stops_300m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m`, `elevation_m` |
+| `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion`, `congestion_max`, `congestion_stable`, `n_corridors`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
 
 </details>
 
-## Wstępne wyniki
-
-*Dane z 22–26.10.2026 (4 doby, w tym 1 pełny dzień roboczy) – liczby do aktualizacji po zebraniu ~2 tygodni. Szczegóły: [`analiza_opisowa.ipynb`](notebooks/analiza_opisowa.ipynb), [`puste_i_przepelnione_stacje.ipynb`](notebooks/puste_i_przepelnione_stacje.ipynb).*
-
-**Popyt**
-- **8–12 tys. przejazdów na dobę** (piątek 11,8 tys., sobota 9,2 tys., niedziela 8,1 tys.).
-- Dzień roboczy ma **szczyt poranny o 8:00** (~580 przejazdów/h) i **większy popołudniowy o 16:00** (~1240/h); w weekend ruch zaczyna się później i rozkłada równiej.
-- Pogoda działa wyraźnie: w niedzielę 25.10 po rozpoczęciu deszczu (~18:00) przejazdów było kilkukrotnie mniej niż o tej porze w sobotę.
-
-**Przejazdy**
-- Mediana: **15 min i 2,0 km** po drogach rowerowych (droga jest średnio 1,26× dłuższa niż linia prosta).
-- **73% przejazdów trwa ≤ 20 min** – tyle, ile jest darmowe w cenniku.
-- 3,6% przejazdów kończy się poza stacją, średnio ok. 200 m od najbliższej stacji.
-
-**Stacje**
-- **Puste stacje są skoncentrowane** (H2): Gini czasu pustek = 0,73; 10% stacji odpowiada za połowę, a 20% za 74% czasu, w którym stacje są puste; 48% stacji nie było pustych ani razu.
-- **Przepełnienie jest częste i dozwolone**: ok. 40% pomiarów ma więcej rowerów niż stojaków – stacje Veturilo 3.0 przyjmują rowery ponad pojemność.
-
-**Operator i flota**
-- **Ok. 65 relokacji na dobę**, zwykle po 4–5 rowerów.
-- Operator deklaruje 4566 rowerów, a **w obiegu jest ok. 3600** (maks. ~3700); nawet z rowerami nieobecnymi > 4 h najwyżej ~3900. Ok. 650–950 rowerów jest stale poza obiegiem (serwis, magazyn).
-- **E-rowery** to ok. 8% stojących rowerów, ale **19% przejazdów** – wypożyczane ok. 2,4× częściej niż zwykłe.
-
 ## Hipotezy
 
-| | Hipoteza | Stan | Dane |
-|---|---|---|---|
-| **H2** | Problem pustych stacji jest skoncentrowany na niewielkiej części stacji | wstępnie potwierdzona (Gini 0,73, top 20% = 74%) | `observed_timeseries`, notebook H2 |
-| | Opad i zmrok obniżają popyt silniej niż sama temperatura | do sprawdzenia | `station_hourly` + `context_hourly` |
-| | E-rowery tworzą osobny strumień popytu (dłuższe trasy, wybór zależny od baterii) | do sprawdzenia | `trips` (`is_ebike`, `battery_start`) |
-| | Darmowe 20 min kształtuje rozkład czasu przejazdu | widoczne w danych; uwzględnić w modelu czasu jazdy | `trips` |
-| | Relokacje operatora nie nadążają za stacjami, które najczęściej się opróżniają | do sprawdzenia | `rebalancing_observed` + `empty_periods` |
-| | Popyt stacji zależy od otoczenia (biura, uczelnie, metro, gęstość zaludnienia) | do sprawdzenia | `station_hourly` + `stations` |
+| | Hipoteza | Stan |
+|---|---|---|
+| **H2** | Puste stacje są skoncentrowane na niewielkiej części stacji | **wstępnie potwierdzona**: Gini 0,68, 20% stacji = 68% czasu pustek |
+| | Opad i zmrok obniżają popyt silniej niż sama temperatura | widoczne (deszcz 25.10), za mało godzin z opadem na test |
+| | Darmowe 20 min kształtuje rozkład czasu przejazdu | widoczne: 73% przejazdów ≤ 20 min |
+| | E-rowery to osobny strumień popytu (częściej wybierane, zależne od baterii) | widoczne: 8% stojących rowerów, 19% przejazdów |
+| | Relokacje operatora nie nadążają za stacjami, które najczęściej się opróżniają | do sprawdzenia (`rebalancing_observed` + `empty_periods`) |
+| | Popyt stacji zależy od otoczenia (biura, uczelnie, metro, mieszkańcy) | do sprawdzenia (`station_hourly` + `stations`) |
+
+## Wstępne wyniki (23.10–2.11, 11 pełnych dób)
+
+Szczegóły i wykresy: [`analiza_opisowa.ipynb`](notebooks/analiza_opisowa.ipynb), [`puste_i_przepelnione_stacje.ipynb`](notebooks/puste_i_przepelnione_stacje.ipynb).
+
+- **Popyt:** dzień roboczy średnio **9,9 tys.** przejazdów (8,3–11,8 tys.), sobota 7,5 tys., niedziela/święto 6,9 tys. Weekend Wszystkich Świętych (31.10–1.11) to ok. 5,8 tys./dobę.
+- **Profil dnia roboczego:** szczyt poranny o 8:00 (~610/h), większy popołudniowy o 16:00 (~960/h).
+- **Przejazdy:** mediana **15 min i 1,8 km** po drogach rowerowych (1,26× dłużej niż w linii prostej); 73% ≤ 20 min; 3,3% kończy się poza stacją.
+- **Stacje:** Gini czasu pustek 0,68 (10% stacji = 44%, 20% = 68% czasu pustek); 31% stacji nie było pustych ani razu. Ok. 40% pomiarów to stacja przepełniona – na Veturilo 3.0 to dozwolone.
+- **Operator:** ok. **72 relokacje na dobę**, zwykle po 4 rowery.
+- **Flota:** operator deklaruje 4566 rowerów, w obiegu jest ok. **3640** (maks. ~3730); 300–400 rowerów nie pojawia się dłużej niż 4 h (serwis, magazyn).
 
 ## Wskazówki do modelu
 
-- **Pojemność jest miękka** – zwrotów nie blokować przy `docks = 0`.
-- **Popyt na pustej stacji jest niewidoczny** – λ szacować z czasu, gdy na stacji były rowery (`departure_rate_per_h`, `empty_periods`).
-- **Flota nie jest stała** – ok. 650–950 rowerów poza obiegiem (`fleet_timeseries`).
-- **E-rowery** warto modelować osobno.
-- Z `trips` odfiltrować `is_flicker`, `too_fast`, `is_long`; w `station_hourly` jest to już zrobione.
-- `duration_min` zawyża czas jazdy średnio o ok. 5 min (odstęp pomiarów).
-- Dni nietypowe w okresie zbierania: 31.10–2.11 (Wszystkich Świętych), 11.11, 24–26.12; zmiana czasu 25.10 (liczyć w UTC).
-- Do kalibracji ≥ 2 tygodnie danych + osobny tydzień do walidacji.
+- **Pojemność jest miękka:** zwrotów nie blokować przy `docks = 0`. Klient traci tylko na pustej stacji.
+- **Popyt na pustej stacji jest niewidoczny:** λ szacować z czasu dostępności roweru (`departure_rate_per_h`, `empty_periods`).
+- **Flota nie jest stała** (`fleet_timeseries`); **e-rowery** warto modelować osobno.
+- Z `trips` odfiltrować `is_flicker`, `too_fast`, `is_long` (w `station_hourly` już zrobione). `duration_min` zawyża czas jazdy średnio o ok. 5 min.
+- Dni nietypowe: 31.10–2.11, 11.11, 24–26.12; zmiana czasu 25.10 (wszystko liczyć w UTC).
 
-## Zbieranie danych – szczegóły techniczne
+## Wizualizacja 3D (Unity)
+
+Scena 3D Warszawy, która **odtwarza wybrany dzień z danych** co 5 minut:
+- stacje jako słupki (wysokość = liczba rowerów, kolor = zapełnienie, pusta pulsuje na czerwono),
+- każdy przejazd jako świecący rower jadący po trasie, e-rowery osobnym kolorem,
+- relokacje jako ciężarówki z liczbą przewożonych rowerów,
+- budynki Śródmieścia, drogi rowerowe, metro, uczelnie z OSM,
+- słońce, zmrok, zachmurzenie i deszcz według danych pogodowych,
+- panel: zegar, pogoda, korki, KPI (rowery w drodze, puste stacje, relokacje), wykresy dnia, oś czasu, karta stacji po kliknięciu.
+
+**Przepływ:** `processed/` → `python -m src.viz.export` (pliki JSON, ok. 1 MB na dzień) → `unity/Assets/StreamingAssets/veturilo/` → Unity: otworzyć folder `unity/` w Unity Hub (Unity 6), pusta scena, **Play**. Scena jest budowana w całości w kodzie. Ten sam eksport przyjmie wynik symulacji DES (`--source sim`). Instrukcja, sterowanie i scenariusz pokazu: [`unity/README.md`](unity/README.md).
+
+## Struktura repozytorium
+
+```
+collect.py                  zbieranie danych live (Nextbike co 5 min, TomTom co 30 min)
+.github/workflows/collect.yml   harmonogram zbierania (łańcuch runów co godzinę)
+requirements.txt            pakiety Python
+
+src/data/                   przygotowanie danych
+  fetch_static.py           pobranie danych statycznych -> data/static/ (kroki: calendar events weather
+                            air_quality elevation population gtfs osm)
+  calendar_data.py          daty kalendarza szkolnego i akademickiego ze źródłami
+  events_data.py            lista wydarzeń w Warszawie ze źródłami
+  osm.py, gtfs.py, population.py   pobranie OSM, rozkładów ZTM, gęstości zaludnienia
+  network.py                odległości między stacjami po drogach rowerowych
+  build.py                  przetworzenie danych live -> processed/ + raport jakości
+  raw.py                    odczyt surowych plików z data/
+  trips.py                  odtwarzanie przejazdów i relokacji z numerów rowerów
+  aggregates.py             tabele pochodne: stacja × godzina, puste stacje, flota, bilans
+  context.py                kontekst godzinowy (pogoda, słońce, kalendarz, wydarzenia, korki)
+  features.py               cechy otoczenia stacji
+  config.py                 ścieżki i stałe
+src/viz/export.py           eksport processed/ -> JSON dla Unity
+
+notebooks/
+  analiza_opisowa.ipynb               przejazdy, relokacje, rowery poza stacjami, flota, e-rowery
+  puste_i_przepelnione_stacje.ipynb   hipoteza H2: krzywa Lorenza, Gini, stabilność, mapa
+
+unity/                      projekt Unity: skrypty w Assets/VeturiloViz/Scripts/ (opis w unity/README.md)
+data/                       dane live + data/static/
+processed/                  wyniki build (poza repozytorium)
+```
+
+## Szybki start
+
+```bash
+git pull                                               # nowe dane co godzinę
+pip install -r requirements.txt
+python -m src.data.fetch_static --only weather air_quality   # dociągnięcie pogody z ostatnich dni
+python -m src.data.build                               # -> processed/
+python -m src.viz.export                               # -> dane dla Unity (opcjonalnie)
+```
+
+```python
+import pandas as pd
+hourly = pd.read_parquet("processed/station_hourly.parquet")
+ctx = pd.read_parquet("processed/context_hourly.parquet")
+panel = hourly.merge(ctx, left_on="hour", right_on="time", how="left")
+
+trips = pd.read_parquet("processed/trips.parquet")
+user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["too_fast"] & ~trips["is_long"]]
+```
 
 <details>
-<summary>GitHub Actions, sekrety, odtwarzanie danych statycznych</summary>
+<summary>Zbieranie danych – szczegóły techniczne</summary>
 
 - Workflow [`.github/workflows/collect.yml`](.github/workflows/collect.yml) działa łańcuchowo: każdy run mierzy co 5 min przez 57 min i uruchamia następny; cron co godzinę wznawia łańcuch, gdyby się przerwał. Wymaga publicznego repozytorium i uprawnień *Read and write* dla workflow.
 - Ręczne uruchomienie: Actions → *Zbieranie danych Veturilo* → *Run workflow* (`iterations = 1` – test, `0` – pełna godzina).
 - Kontrola raz w tygodniu: brak czerwonych runów w Actions i ciągłość commitów `Dane ...`.
-- TomTom wymaga sekretu `TOMTOM_API_KEY` (pomiar co 30 min mieści się w darmowym limicie). Dane ZTM (`WARSAW_API_KEY`) nie są zbierane.
-- `python -m src.data.fetch_static [--only KROK ...] [--force KROK ...]` – kroki: `calendar events weather air_quality elevation population gtfs osm`. Gotowe pliki są pomijane; pogoda i jakość powietrza dociągane przyrostowo. Grafy dróg OSM (~130 MB, poza repo) budowane tylko z `--force osm`.
-- Poza repozytorium: `processed/`, `data/static/cache/`, grafy i cache w `data/static/osm/`.
+- TomTom wymaga sekretu `TOMTOM_API_KEY` (pomiar co 30 min mieści się w darmowym limicie). 26.10 dwa punkty TomTom przeniesiono na główne jezdnie; wskaźnik korków łączy je z poprzednikami.
+- `fetch_static` pomija gotowe pliki (`--force KROK` tworzy ponownie); pogoda i jakość powietrza są dociągane przyrostowo. Grafy dróg OSM (~130 MB, poza repo, potrzebne do tras w wizualizacji) – `--only osm --force osm`.
+- Poza repozytorium: `processed/`, `data/static/cache/`, grafy i cache w `data/static/osm/`, dane eksportu w `unity/Assets/StreamingAssets/veturilo/`.
 
 </details>
