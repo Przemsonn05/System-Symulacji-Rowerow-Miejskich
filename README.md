@@ -183,7 +183,8 @@ Interaktywna scena 3D Warszawy, w której **odtwarzamy wybrany prawdziwy dzień*
 | **utracony popyt**: heksagony rosnące tam, gdzie klienci przychodzą do pustej stacji (szacunek) | stan stacji + popyt z `station_hourly` |
 | **ciężarówki operatora** z liczbą przewożonych rowerów | relokacje |
 | **miasto:** ok. 180 tys. budynków całej Warszawy z oknami, Wisła, mosty, zieleń i ok. 90 tys. drzew, główne ulice z latarniami, metro M1/M2, tory, drogi rowerowe, granica miasta | OpenStreetMap |
-| **pora dnia i pogoda:** słońce, zmierzch (zapalają się okna i latarnie), gwiazdy, chmury, mgła, deszcz | Open-Meteo |
+| **pora dnia i pogoda:** słońce, zmierzch (zapalają się okna i latarnie), gwiazdy, cienie chmur sunące z wiatrem, mgła, deszcz i mokre, błyszczące ulice | Open-Meteo |
+| **grafika (URP):** bloom, tonemapping, SSAO, Wisła odbijająca miasto i światła | – |
 | **korki i utrudnienia** na 10 arteriach, **wydarzenia** (słup światła nad stadionem), **mieszkańcy** (heksagony) | TomTom, `events.csv`, Kontur |
 | **panele:** zegar, pogoda, jakość powietrza, KPI, wykresy dnia, lista stacji pustych najdłużej, karta stacji z otoczeniem | wszystko powyżej |
 

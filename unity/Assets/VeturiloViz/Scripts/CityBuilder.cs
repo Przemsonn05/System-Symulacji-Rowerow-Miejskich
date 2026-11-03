@@ -72,6 +72,10 @@ namespace Veturilo.Viz
         public GameObject Buildings, Cycleways, Ground, Pois, Basemap, Population, Roads;
         public readonly List<(Transform t, string category)> PoiLabels = new List<(Transform, string)>();
         public int BuildingCount { get; private set; }
+        public Material WaterMaterial { get; private set; }
+        public const float WaterY = YWater;
+        Material groundMat;
+        readonly List<Material> roofs = new List<Material>();
         readonly List<Material> facades = new List<Material>();
         Material roadMat, boundaryMat;
         StreetLights lights;
@@ -89,16 +93,37 @@ namespace Veturilo.Viz
             Pois = BuildPois(data.City.pois, parent);
         }
 
+        /// Mokre miasto po deszczu (wet01: 0 sucho .. 1 mokro): ciemniejsze, blyszczace podloze i dachy - odbijaja niebo i swiatla.
+        public void SetWet(float wet01)
+        {
+            if (groundMat != null)
+            {
+                Mats.SetColor(groundMat, Color.Lerp(Mats.Ground, Mats.Ground * 0.6f, wet01));
+                groundMat.SetFloat("_Smoothness", Mathf.Lerp(0.05f, 0.82f, wet01));
+                groundMat.SetFloat("_Glossiness", Mathf.Lerp(0.05f, 0.82f, wet01));
+            }
+            foreach (var r in roofs)
+            {
+                r.SetFloat("_Smoothness", Mathf.Lerp(0.1f, 0.7f, wet01));
+                r.SetFloat("_Glossiness", Mathf.Lerp(0.1f, 0.7f, wet01));
+            }
+            if (roadMat != null) roadWet = wet01;
+        }
+        float roadWet;
+
         /// Pora dnia: okna, latarnie i ulice swieca wieczorem (night01: 0 dzien .. 1 noc).
         public void SetNight(float night01)
         {
-            var emission = new Color(1f, 0.95f, 0.85f) * (night01 * 1.7f);
+            var emission = new Color(1f, 0.95f, 0.85f) * (night01 * 2.4f);
             foreach (var m in facades)
                 if (m.HasProperty("_EmissionColor")) m.SetColor("_EmissionColor", emission);
             if (roadMat != null)
             {
                 var day = new Color(0.52f, 0.54f, 0.58f, 0.6f);
                 var night = new Color(1.00f, 0.66f, 0.30f, 0.95f);
+                // mokra nawierzchnia: ciemniejsza w dzien, jasniejsze (odbite) swiatla noca
+                day = Color.Lerp(day, new Color(0.36f, 0.40f, 0.46f, 0.75f), roadWet);
+                night = Color.Lerp(night, new Color(1.0f, 0.75f, 0.42f, 1f), roadWet);
                 roadMat.color = Color.Lerp(day, night, night01);
             }
             if (boundaryMat != null) boundaryMat.color = Color.Lerp(new Color(1f, 0.8f, 0.2f, 0.45f), new Color(1f, 0.8f, 0.2f, 0.7f), night01);
@@ -113,7 +138,8 @@ namespace Veturilo.Viz
             g.transform.SetParent(parent, false);
             g.transform.localScale = new Vector3(8000, 1, 8000); // 80 x 80 km
             var mr = g.GetComponent<MeshRenderer>();
-            mr.sharedMaterial = Mats.Lit(Mats.Ground, 0.05f);
+            groundMat = Mats.Lit(Mats.Ground, 0.05f);
+            mr.sharedMaterial = groundMat;
             mr.shadowCastingMode = ShadowCastingMode.Off;
             mr.receiveShadows = true;
 
@@ -141,8 +167,9 @@ namespace Veturilo.Viz
 
             FlatMesh(root.transform, "Green", bm.green, YGreen, Mats.Lit(Mats.Green, 0.1f));
             FlatMesh(root.transform, "Forest", bm.forest, YForest, Mats.Lit(Mats.Forest, 0.05f));
-            var water = FlatMesh(root.transform, "Water", bm.water, YWater, Mats.Lit(Mats.Water, 0.9f));
-            if (water != null) water.GetComponent<MeshRenderer>().receiveShadows = true;
+            WaterMaterial = Mats.Water();
+            var water = FlatMesh(root.transform, "Water", bm.water, YWater, WaterMaterial);
+            if (water != null) { water.GetComponent<MeshRenderer>().receiveShadows = true; water.layer = 4; }   // warstwa Water
 
             // ulice: szerokosc i jasnosc wg klasy; kolor (dzien szary / noc jak latarnie) z materialu; mosty wyzej
             Roads = new GameObject("Roads");
@@ -324,7 +351,9 @@ namespace Veturilo.Viz
             {
                 var facade = Mats.Facade(Classes[c].color, Mats.FacadeTexture, Mats.WindowsTexture);
                 facades.Add(facade);
-                mats[c] = new[] { facade, Mats.Lit(Classes[c].roof, c == 2 ? 0.5f : 0.1f) };
+                var roof = Mats.Lit(Classes[c].roof, c == 2 ? 0.5f : 0.1f);
+                roofs.Add(roof);
+                mats[c] = new[] { facade, roof };
             }
             var poly = new List<Vector2>();
             var parts = new MeshParts[3];

@@ -17,7 +17,7 @@ Podkład mapy (Wisła, zieleń, ulice, metro, mosty), budynki całej Warszawy i 
 python -m src.data.fetch_static --only osm --force osm
 ```
 
-### 2. Unity (Unity 6, wersja 6000.0.85f1)
+### 2. Unity (Unity 6, wersja 6000.0.85f1, URP)
 
 1. Unity Hub → **Add → Add project from disk** → folder `unity/` z repozytorium.
 2. Otwórz scenę `Assets/Scenes/Veturilo.unity` (jeśli jej nie ma: menu **Veturilo → Utwórz scenę**).
@@ -35,7 +35,7 @@ python -m src.data.fetch_static --only osm --force osm
 unity\Build\Veturilo.exe -screen-fullscreen 0 -vtShots C:\zrzuty
 ```
 
-Seria to 13 zrzutów: miasto rano, Śródmieście w szczycie, bilans z łukami OD, mapa H2, utracony popyt, ulice wieczorem, noc nad Wisłą, ślady całego dnia, mieszkańcy, karta stacji, śledzenie roweru, porównanie dwóch dni i pokaz. Aplikacja sama się zamyka.
+Seria to 16 zrzutów (m.in. Wisła w dzień z odbiciami i deszczowy wieczór 25.10 z mokrymi ulicami): miasto rano, Śródmieście w szczycie, bilans z łukami OD, mapa H2, utracony popyt, ulice wieczorem, noc nad Wisłą, ślady całego dnia, mieszkańcy, karta stacji, śledzenie roweru, porównanie dwóch dni i pokaz. Aplikacja sama się zamyka.
 
 ## Co widać
 
@@ -55,6 +55,10 @@ Seria to 13 zrzutów: miasto rano, Śródmieście w szczycie, bilans z łukami O
 | **Korki** (K) | znaczniki na 10 arteriach TomTom z % spowolnienia (zielony → czerwony) i utrudnienia (wypadki, korki, zamknięcia, roboty) | `data/traffic_flow`, `data/incidents` |
 | **Wydarzenia** | słup światła nad obiektem (stadion, Narodowy) od 1,5 h przed startem | `events.csv` |
 | **Mieszkańcy** (P) | heksagony gęstości zaludnienia | `population_h3` |
+| **Grafika (URP)** | bloom (neonowe światła rowerów, okien i latarni), tonemapping ACES, SSAO (głębia między budynkami), wygładzanie krawędzi, winieta; nocą mocniejsza poświata | `Assets/VeturiloViz/Settings/VeturiloURP.asset` |
+| **Wisła z odbiciem** | woda odbija miasto, światła i niebo (osobna kamera lustrzana), fale, odblask słońca | shader `Veturilo/Water` |
+| **Cienie chmur** | chmury przesuwają się z wiatrem po mieście; zakrywają tyle nieba, ile wynosi zachmurzenie z danych | Open-Meteo |
+| **Mokre ulice** | w deszczu i do ok. 1,5 h po nim nawierzchnia i dachy ciemnieją i błyszczą, światła się w nich odbijają | opad z Open-Meteo |
 | **Niebo i pogoda** | położenie słońca, świt i zmierzch, gwiazdy, chmury, mgła, deszcz z wiatrem | `context_hourly` (Open-Meteo) |
 
 **Trzy widoki stacji (V):**
@@ -131,7 +135,8 @@ Assets/VeturiloViz/Scripts/
   TruckLayer.cs      ciężarówki relokacji
   FlowLayer.cs       łuki OD
   ContextLayer.cs    wydarzenia, korki TomTom, utrudnienia
-  EnvironmentFx.cs   słońce, niebo, gwiazdy, mgła, deszcz; Night01 dla świateł miasta
+  EnvironmentFx.cs   słońce, niebo, gwiazdy, cienie chmur, mgła, deszcz, mokre ulice; Night01 dla świateł miasta
+  RenderFx.cs        post-processing URP (bloom, ACES, kolor) i odbicie w wodzie
   Tour.cs            pokaz z komentarzem (T)
   Fx.cs              poświata z cząsteczek, opisy 3D
   CameraRig.cs       kamera orbitalna, przeloty, tryb kinowy
@@ -139,6 +144,8 @@ Assets/VeturiloViz/Scripts/
   InputCompat.cs     stary Input Manager i nowy Input System
   Mats.cs            materiały, tekstury elewacji i poświaty, paleta kolorów
 Assets/VeturiloViz/Shaders/DayTrails.shader  shader śladów całego dnia
+Assets/VeturiloViz/Shaders/Water.shader      woda z odbiciem i falami (URP)
+Assets/VeturiloViz/Settings/                 potok URP i renderer z SSAO
 Assets/VeturiloViz/Editor/VeturiloBuild.cs   menu Veturilo: scena, szablony materiałów, build
 Assets/VeturiloViz/Resources/VeturiloMaterials/   szablony materiałów (shadery w zbudowanej aplikacji)
 ```
@@ -152,8 +159,9 @@ Eksporter czyta pliki w formacie `processed/` (`observed_timeseries`, `trips`, `
 - **„Nie udało się wczytać danych”:** uruchom `python -m src.viz.export` i sprawdź, czy istnieje `Assets/StreamingAssets/veturilo/index.json`.
 - **Rowery jadą w linii prostej:** brak tras w cache dla tych par stacji. Zbuduj graf (`fetch_static --only osm --force osm`) i powtórz eksport.
 - **Brak Wisły i ulic:** brak `data/static/osm/basemap.parquet` albo stary eksport. Powtórz `python -m src.viz.export`.
-- **Różowe obiekty w zbudowanej aplikacji:** brak szablonów materiałów. Menu **Veturilo → Odśwież szablony materiałów**, potem zbuduj ponownie.
+- **Różowe obiekty:** projekt używa URP. Jeśli Unity nie przełączyło się samo, użyj menu **Veturilo → Ustaw URP (bloom, cienie, SSAO)**. W zbudowanej aplikacji: **Veturilo → Odśwież szablony materiałów** i zbuduj ponownie.
+- **Okna nie świecą nocą w zbudowanej aplikacji:** szablon `Resources/VeturiloMaterials/Facade.mat` musi mieć słowo kluczowe `_EMISSION` (od niego zależy, czy wariant shadera trafi do buildu).
 - **Pytanie o Input System przy otwarciu:** obie odpowiedzi działają.
 - **„e-rowery: brak danych” w karcie stacji:** to poprawne dla pomiarów sprzed 23.10.2026 ok. 10:00.
-- **Wolne działanie na słabszym komputerze:** wyłącz warstwy Budynki i Mapa (z drzewami) albo obniż *Project Settings → Quality*. Drzewa są rysowane tylko z bliska.
+- **Wolne działanie na słabszym komputerze:** najpierw wyłącz warstwę **Efekty** (bloom, SSAO, odbicia w wodzie), potem Budynki i Mapa (z drzewami) albo obniż *Project Settings → Quality*. Drzewa są rysowane tylko z bliska.
 - **Za duże lub za małe elementy:** parametry są na komponentach w trakcie Play (`StationLayer.metersPerBike`, `BikeLayer.maxSize`, `TruckLayer.scale`, `VeturiloApp.labelScale`).

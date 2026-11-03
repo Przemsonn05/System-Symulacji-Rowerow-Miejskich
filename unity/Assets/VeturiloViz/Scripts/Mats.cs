@@ -1,6 +1,6 @@
 // Materialy i tekstury tworzone w kodzie. Szablony z Resources/VeturiloMaterials (tworzy je menu
 // Veturilo -> Utworz scene) gwarantuja, ze shadery trafia do zbudowanej aplikacji; w edytorze
-// wystarczy Shader.Find. Dziala w Built-in Render Pipeline, w URP awaryjnie (bez poswiaty).
+// wystarczy Shader.Find. Projekt uzywa URP; bez niego (Built-in) materialy przechodza na shadery Standard.
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -26,13 +26,14 @@ namespace Veturilo.Viz
         static Material New(string template, params string[] shaders)
         {
             var t = Resources.Load<Material>("VeturiloMaterials/" + template);
-            return t != null && !IsUrp ? new Material(t) : new Material(Find(shaders));
+            var want = Find(shaders);
+            // szablon tylko, gdy ma ten sam shader (np. szablon URP w projekcie przelaczonym na Built-in - nie)
+            return t != null && t.shader == want ? new Material(t) : new Material(want);
         }
 
         public static Material Lit(Color c, float smoothness = 0.2f)
         {
-            var m = IsUrp ? new Material(Find("Universal Render Pipeline/Lit", "Standard"))
-                          : New("Lit", "Standard");
+            var m = IsUrp ? New("Lit", "Universal Render Pipeline/Lit", "Standard") : new Material(Find("Standard"));
             SetColor(m, c);
             if (m.HasProperty("_Smoothness")) m.SetFloat("_Smoothness", smoothness);
             if (m.HasProperty("_Glossiness")) m.SetFloat("_Glossiness", smoothness);
@@ -44,8 +45,7 @@ namespace Veturilo.Viz
         /// Sciany budynkow: tekstura elewacji + okna swiecace noca (emisja sterowana z EnvironmentFx).
         public static Material Facade(Color tint, Texture2D albedo, Texture2D windows)
         {
-            var m = IsUrp ? new Material(Find("Universal Render Pipeline/Lit", "Standard"))
-                          : New("Facade", "Standard");
+            var m = IsUrp ? New("Facade", "Universal Render Pipeline/Lit", "Standard") : new Material(Find("Standard"));
             SetColor(m, tint);
             if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", albedo);
             if (m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", albedo);
@@ -63,8 +63,7 @@ namespace Veturilo.Viz
 
         public static Material Unlit(Color c)
         {
-            var m = IsUrp ? new Material(Find("Universal Render Pipeline/Unlit", "Unlit/Color"))
-                          : New("Unlit", "Unlit/Color");
+            var m = IsUrp ? New("Unlit", "Universal Render Pipeline/Unlit", "Unlit/Color") : new Material(Find("Unlit/Color"));
             SetColor(m, c);
             m.enableInstancing = true;
             return m;
@@ -87,11 +86,27 @@ namespace Veturilo.Viz
             return s != null ? new Material(s) : Vertex(Color.white);
         }
 
+        /// Woda z odbiciem (URP); bez shadera wody - gladki material Lit.
+        public static Material Water()
+        {
+            if (IsUrp)
+            {
+                var t = Resources.Load<Material>("VeturiloMaterials/Water");
+                var s = t != null ? null : Shader.Find("Veturilo/Water");
+                if (t != null || s != null)
+                {
+                    var m = t != null ? new Material(t) : new Material(s);
+                    m.SetColor("_BaseColor", new Color(0.06f, 0.14f, 0.2f));
+                    return m;
+                }
+            }
+            return Lit(Water_, 0.9f);
+        }
+
         /// Addytywna poswiata (rowery, swiatla, gwiazdy) - tekstura miekkiego kola.
         public static Material Glow()
         {
-            var m = IsUrp ? new Material(Find("Universal Render Pipeline/Particles/Unlit", "Sprites/Default"))
-                          : New("Glow", "Legacy Shaders/Particles/Additive", "Mobile/Particles/Additive", "Sprites/Default");
+            var m = New("Glow", "Legacy Shaders/Particles/Additive", "Mobile/Particles/Additive", "Sprites/Default");
             if (m.HasProperty("_MainTex")) m.SetTexture("_MainTex", GlowTexture);
             if (m.HasProperty("_BaseMap")) m.SetTexture("_BaseMap", GlowTexture);
             if (m.HasProperty("_TintColor")) m.SetColor("_TintColor", new Color(0.5f, 0.5f, 0.5f, 0.5f));
@@ -185,7 +200,7 @@ namespace Veturilo.Viz
 
         public static readonly Color Background = new Color(0.06f, 0.07f, 0.09f);
         public static readonly Color Ground = new Color(0.17f, 0.175f, 0.19f);
-        public static readonly Color Water = new Color(0.10f, 0.20f, 0.32f);
+        public static readonly Color Water_ = new Color(0.10f, 0.20f, 0.32f);
         public static readonly Color Green = new Color(0.20f, 0.32f, 0.18f);
         public static readonly Color Forest = new Color(0.12f, 0.22f, 0.12f);
         public static readonly Color Cycleway = new Color(0.20f, 0.85f, 0.55f, 0.55f);

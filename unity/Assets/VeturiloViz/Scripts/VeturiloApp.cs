@@ -22,7 +22,7 @@ namespace Veturilo.Viz
         public static readonly string[] LayerNames =
         {
             "Budynki", "Mapa", "Drogi rower.", "Ślady", "Ślady dnia", "Łuki OD",
-            "Utracony popyt", "Korki", "Mieszkańcy", "Ciężarówki", "Opisy", "Poza stacją",
+            "Utracony popyt", "Korki", "Mieszkańcy", "Ciężarówki", "Opisy", "Poza stacją", "Efekty",
         };
 
         [Header("Start")]
@@ -42,6 +42,8 @@ namespace Veturilo.Viz
         public DayTrailLayer Trails { get; private set; }
         public LostDemandLayer Lost { get; private set; }
         public EnvironmentFx Env { get; private set; }
+        public PostFx Post { get; private set; }
+        public PlanarReflection Reflection { get; private set; }
         public CameraRig Rig { get; private set; }
         public Hud Hud { get; private set; }
         public CityBuilder City => city;
@@ -123,6 +125,12 @@ namespace Veturilo.Viz
 
             Env = gameObject.AddComponent<EnvironmentFx>();
             Env.Init(cam);
+            if (Mats.IsUrp)
+            {
+                Post = PostFx.Create(transform, cam);
+                if (city.WaterMaterial != null && city.WaterMaterial.shader.name == "Veturilo/Water")
+                    Reflection = PlanarReflection.Create(transform, cam, city.WaterMaterial, CityBuilder.WaterY, 4);
+            }
 
             tour = new Tour(this);
             Hud.Build();
@@ -197,6 +205,8 @@ namespace Veturilo.Viz
 
             Env.UpdateAt(Data, t);
             city.SetNight(Env.Night01);
+            city.SetWet(Env.Wet01);
+            if (Post != null) Post.UpdateAt(Env.Night01, Env.Precip, Env.Cloud);
             Stations.UpdateAt(t, Env.Night01);
             Bikes.UpdateAt(t, Playing ? Speed : 1f, Playing);
             Trucks.UpdateAt(t);
@@ -390,6 +400,7 @@ namespace Veturilo.Viz
                 var go = new GameObject("CameraB");
                 camB = go.AddComponent<Camera>();
                 go.AddComponent<CameraMirror>().source = cam;
+                if (Post != null) PostFx.Enable(camB);
             }
             if (!LoadDayB(PickDayB())) return;
             Comparing = true;
@@ -492,6 +503,7 @@ namespace Veturilo.Viz
                 case "Ciężarówki": return Trucks.gameObject.activeSelf;
                 case "Opisy": return city.Pois.activeSelf;
                 case "Poza stacją": return Bikes.showLoose;
+                case "Efekty": return Post != null && Post.Active;
                 default: return false;
             }
         }
@@ -520,6 +532,13 @@ namespace Veturilo.Viz
                 case "Ciężarówki": Trucks.gameObject.SetActive(on); break;
                 case "Opisy": city.Pois.SetActive(on); break;
                 case "Poza stacją": Bikes.showLoose = on; break;
+                case "Efekty":
+                    // bloom, SSAO i odbicia w wodzie - wylaczenie przyspiesza dzialanie na slabszym komputerze
+                    if (Post == null) break;
+                    Post.SetEnabled(on);
+                    if (Reflection != null) Reflection.enabled = on;
+                    cam.GetComponent<UnityEngine.Rendering.Universal.UniversalAdditionalCameraData>().renderPostProcessing = on;
+                    break;
             }
         }
 
@@ -585,6 +604,39 @@ namespace Veturilo.Viz
             }
             foreach (var l in optional) SetLayer(l, false);
             SetMode(ViewMode.Fill);
+
+            // ujecie na horyzont w poludnie (mgla, niebo, cienie chmur)
+            t = Data.TimeOfLocalHour(12f);
+            Rig.Preset(new Vector3(0, 0, -2000), 10f, 6f, 4000f, true);
+            yield return new WaitForSecondsRealtime(0.6f);
+            yield return new WaitForEndOfFrame();
+            ScreenCapture.CaptureScreenshot(Path.Combine(dir, "16_horyzont.png"));
+            yield return new WaitForSecondsRealtime(0.5f);
+
+            // Wisla w dzien (odbicia, cienie chmur) i deszczowy wieczor 25.10 (mokre ulice)
+            View(5, instant: true);
+            t = Data.TimeOfLocalHour(11.5f) - 300f;
+            Speed = 300f; Playing = true;
+            yield return new WaitForSecondsRealtime(1.2f);
+            Playing = false;
+            yield return new WaitForEndOfFrame();
+            ScreenCapture.CaptureScreenshot(Path.Combine(dir, "14_wisla_dzien.png"));
+            yield return new WaitForSecondsRealtime(0.5f);
+            int home = Data.DayIndex;
+            int rainy = Array.FindIndex(Data.Index.days, d => d.date == "2026-10-25");
+            if (rainy >= 0)
+            {
+                LoadDay(rainy, 0);
+                View(4, instant: true);
+                t = Data.TimeOfLocalHour(19.0f) - 300f;
+                Playing = true;
+                yield return new WaitForSecondsRealtime(1.5f);
+                Playing = false;
+                yield return new WaitForEndOfFrame();
+                ScreenCapture.CaptureScreenshot(Path.Combine(dir, "15_deszcz_mokre_ulice.png"));
+                yield return new WaitForSecondsRealtime(0.5f);
+                LoadDay(home, 0);
+            }
 
             // karta stacji (Metro Centrum, jesli jest)
             t = Data.TimeOfLocalHour(8.5f);

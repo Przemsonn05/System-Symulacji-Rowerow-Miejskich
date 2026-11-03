@@ -1,7 +1,9 @@
 // Pora dnia i pogoda z danych: pozycja slonca (wysokosc z astral / Open-Meteo), niebo, gwiazdy noca,
-// zachmurzenie, mgla, deszcz z wiatrem. Night01 steruje swiatlami miasta (okna, latarnie).
+// zachmurzenie, cienie chmur sunace z wiatrem (cookie swiatla w URP), mgla, deszcz z wiatrem, mokre ulice.
+// Night01 steruje swiatlami miasta (okna, latarnie), Wet01 - mokra nawierzchnia.
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEngine.Rendering.Universal;
 
 namespace Veturilo.Viz
 {
@@ -17,6 +19,16 @@ namespace Veturilo.Viz
         public float Precip { get; private set; }
         public float Cloud { get; private set; }
         public float Wind { get; private set; }
+        /// 0 = sucho, 1 = mokro (deszcz teraz albo w ostatnich ok. 1,5 h; schnie stopniowo).
+        public float Wet01 { get; private set; }
+
+        // cienie chmur
+        public float cloudCookieSize = 7000f;
+        Texture2D cookie;
+        float[] noise, noiseSorted;
+        float cookieCloud = -1;
+        Vector2 cookieOffset;
+        float lastT = -1;
         /// 0 = pelny dzien, 1 = noc (slonce < -6 st., po zmierzchu cywilnym).
         public float Night01 { get; private set; }
         public bool IsNight => SunElevation < -4f;
@@ -55,6 +67,12 @@ namespace Veturilo.Viz
             Precip = data.HourValue(h.precip, t);
             Cloud = data.HourValue(h.cloud, t) / 100f;
             Wind = data.HourValue(h.wind, t);
+            // mokro: deszcz z ostatnich 2 h, starszy coraz slabiej (deterministycznie - dziala tez przy przewijaniu)
+            float wet = 0;
+            for (int k = 0; k <= 4; k++)
+                wet = Mathf.Max(wet, Mathf.Clamp01(data.HourValue(h.precip, t - k * 1800f) / 0.3f) * (1f - k * 0.2f));
+            Wet01 = wet;
+            UpdateClouds(t);
 
             // azymut: z grubsza 15 stopni na godzine; czas sloneczny = UTC + 21 st. dlugosci / 15 = UTC + 1,4 h
             float solarHour = (float)((data.Day.startEpoch + (long)t) % 86400) / 3600f + 1.4f;
@@ -68,7 +86,8 @@ namespace Veturilo.Viz
             float day = Mathf.Clamp01((elev + 6f) / 18f);          // 0 noc .. 1 dzien
             Night01 = 1f - Mathf.Clamp01((elev + 6f) / 8f);       // swiatla miasta wlaczaja sie o zmierzchu
             float cloudDim = Mathf.Lerp(1f, 0.55f, Cloud);
-            sun.intensity = night ? 0.18f : Mathf.Lerp(0.3f, 1.25f, day) * cloudDim;
+            // URP + ACES: jasniejsze slonce; pod chmurami mniej przyciemniania - cien daja chmury (cookie)
+            sun.intensity = night ? 0.18f : Mathf.Lerp(0.3f, 1.25f, day) * (Mats.IsUrp ? 1.45f * Mathf.Lerp(1f, 0.78f, Cloud) : cloudDim);
             sun.shadowStrength = night ? 0.3f : Mathf.Lerp(0.85f, 0.45f, Cloud);
             var warm = new Color(1f, 0.66f, 0.42f);
             sun.color = night ? new Color(0.55f, 0.65f, 1f) : Color.Lerp(warm, new Color(1f, 0.97f, 0.92f), Mathf.Clamp01(elev / 18f));
@@ -79,15 +98,22 @@ namespace Veturilo.Viz
             RenderSettings.ambientSkyColor = Color.Lerp(skyNight, skyDay, day) * dim;
             RenderSettings.ambientEquatorColor = Color.Lerp(eqNight, eqDay, day) * dim;
             RenderSettings.ambientGroundColor = Color.Lerp(new Color(0.02f, 0.02f, 0.03f), new Color(0.22f, 0.21f, 0.2f), day);
+            // URP bierze swiatlo otoczenia z sondy SH - zmiany kolorow w trakcie dzialania trzeba do niej przepisac
+            var sh = new SphericalHarmonicsL2();
+            var eq = RenderSettings.ambientEquatorColor;
+            sh.AddAmbientLight(eq);
+            sh.AddDirectionalLight(Vector3.up, (RenderSettings.ambientSkyColor - eq) * 1.2f, 1f);
+            sh.AddDirectionalLight(Vector3.down, (RenderSettings.ambientGroundColor - eq) * 1.2f, 1f);
+            RenderSettings.ambientProbe = sh;
 
             // zachod/wschod: cieplejsza mgla przy niskim sloncu
             var fogDay = Color.Lerp(new Color(0.64f, 0.71f, 0.80f), new Color(0.56f, 0.58f, 0.61f), Cloud);
             var fogDusk = new Color(0.62f, 0.47f, 0.40f);
-            var fogNight = new Color(0.025f, 0.035f, 0.07f);
+            var fogNight = new Color(0.045f, 0.055f, 0.095f);
             float dusk = Mathf.Clamp01(1f - Mathf.Abs(elev - 1f) / 7f) * (1f - Cloud * 0.6f);
             var fog = Color.Lerp(fogNight, Color.Lerp(fogDay, fogDusk, dusk), day);
             RenderSettings.fogColor = fog;
-            RenderSettings.fogDensity = Mathf.Lerp(0.000022f, 0.00007f, Mathf.Max(Cloud * 0.5f, Mathf.Clamp01(Precip / 1.5f)));
+            RenderSettings.fogDensity = Mathf.Lerp(0.000011f, 0.000045f, Mathf.Max(Cloud * 0.4f, Mathf.Clamp01(Precip / 1.5f)));
             if (cam)
             {
                 cam.clearFlags = sky != null ? CameraClearFlags.Skybox : CameraClearFlags.SolidColor;
@@ -117,6 +143,71 @@ namespace Veturilo.Viz
             var sr = stars.GetComponent<ParticleSystemRenderer>();
             sr.enabled = sa > 0.02f;
             if (sr.enabled) Mats.SetGlowTint(sr.sharedMaterial, sa);
+        }
+
+        // ---------------------------------------------------------------- cienie chmur
+
+        void UpdateClouds(float t)
+        {
+            float dt = lastT < 0 ? 0 : Mathf.Clamp(t - lastT, -3600f, 3600f);
+            lastT = t;
+            bool on = !IsNight && Cloud > 0.08f && Cloud < 0.97f && Mats.IsUrp;
+            if (!on) { if (sun.cookie != null) sun.cookie = null; return; }
+            if (cookie == null) BuildNoise();
+            if (Mathf.Abs(Cloud - cookieCloud) > 0.04f) FillCookie(Cloud);
+            if (sun.cookie != cookie) sun.cookie = cookie;
+            // chmury plyna z wiatrem (kierunek zachodni - przewazajacy w Warszawie); predkosc wiatru w m/s
+            cookieOffset += new Vector2(0.85f, 0.25f) * (Mathf.Max(Wind, 5f) / 3.6f) * dt * 0.6f;
+            cookieOffset.x %= cloudCookieSize; cookieOffset.y %= cloudCookieSize;
+            var ld = sun.GetUniversalAdditionalLightData();
+            ld.lightCookieSize = new Vector2(cloudCookieSize, cloudCookieSize);
+            ld.lightCookieOffset = cookieOffset;
+        }
+
+        /// Szum fraktalny powtarzalny na brzegach (tekstura kafelkuje sie bez szwow).
+        void BuildNoise()
+        {
+            const int n = 256;
+            noise = new float[n * n];
+            var rnd = new System.Random(5);
+            float total = 0;
+            for (int o = 0, cells = 4; o < 5; o++, cells *= 2)
+            {
+                float amp = Mathf.Pow(0.55f, o);
+                total += amp;
+                var g = new float[cells * cells];
+                for (int i = 0; i < g.Length; i++) g[i] = (float)rnd.NextDouble();
+                for (int y = 0; y < n; y++)
+                    for (int x = 0; x < n; x++)
+                    {
+                        float fx = x * cells / (float)n, fy = y * cells / (float)n;
+                        int x0 = (int)fx, y0 = (int)fy, x1 = (x0 + 1) % cells, y1 = (y0 + 1) % cells;
+                        float sx = Mathf.SmoothStep(0, 1, fx - x0), sy = Mathf.SmoothStep(0, 1, fy - y0);
+                        float a = Mathf.Lerp(g[y0 * cells + x0], g[y0 * cells + x1], sx);
+                        float b = Mathf.Lerp(g[y1 * cells + x0], g[y1 * cells + x1], sx);
+                        noise[y * n + x] += Mathf.Lerp(a, b, sy) * amp;
+                    }
+            }
+            for (int i = 0; i < noise.Length; i++) noise[i] /= total;
+            noiseSorted = (float[])noise.Clone();
+            System.Array.Sort(noiseSorted);
+            cookie = new Texture2D(n, n, TextureFormat.RGBA32, true) { wrapMode = TextureWrapMode.Repeat, name = "CloudShadows" };
+        }
+
+        /// Prog szumu tak, zeby chmury zakrywaly taki ulamek nieba jak zachmurzenie z Open-Meteo.
+        void FillCookie(float cloud)
+        {
+            cookieCloud = cloud;
+            float th = noiseSorted[Mathf.Clamp((int)((1 - cloud) * (noiseSorted.Length - 1)), 0, noiseSorted.Length - 1)];
+            var px = new Color32[noise.Length];
+            for (int i = 0; i < noise.Length; i++)
+            {
+                float shade = Mathf.SmoothStep(0, 1, (noise[i] - th + 0.05f) / 0.1f);   // miekkie brzegi chmur
+                byte v = (byte)(255 * (1f - 0.55f * shade));
+                px[i] = new Color32(v, v, v, v);
+            }
+            cookie.SetPixels32(px);
+            cookie.Apply(true);
         }
 
         ParticleSystem CreateRain()

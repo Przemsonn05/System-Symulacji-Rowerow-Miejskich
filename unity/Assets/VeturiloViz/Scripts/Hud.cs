@@ -72,7 +72,7 @@ namespace Veturilo.Viz
             }
 
             // ------------------------------------------------ prawy gorny: widok stacji, legenda, warstwy
-            var view = Ui.Panel("View", root, new Vector2(1, 1), new Vector2(-20, -20), new Vector2(390, 556));
+            var view = Ui.Panel("View", root, new Vector2(1, 1), new Vector2(-20, -20), new Vector2(390, 588));
             Ui.Label(view, "Widok stacji  (V)", 15, new Vector2(16, -14), new Vector2(300, 22), color: Ui.TextDim);
             int mx = 16;
             foreach (var (mode, label) in new[] { (ViewMode.Fill, "Zapełnienie"), (ViewMode.Balance, "Bilans 1 h"), (ViewMode.Problem, "H2: pustki") })
@@ -118,7 +118,7 @@ namespace Veturilo.Viz
             }
 
             // ------------------------------------------------ prawy: karta stacji albo lista pustych
-            stationPanel = Ui.Panel("Station", root, new Vector2(1, 1), new Vector2(-20, -590), new Vector2(390, 352));
+            stationPanel = Ui.Panel("Station", root, new Vector2(1, 1), new Vector2(-20, -622), new Vector2(390, 344));
             stName = Ui.Label(stationPanel, "", 17, new Vector2(16, -12), new Vector2(360, 24), style: FontStyle.Bold);
             stNow = Ui.Label(stationPanel, "", 24, new Vector2(16, -38), new Vector2(360, 32), style: FontStyle.Bold);
             stInfo = Ui.Label(stationPanel, "", 13, new Vector2(16, -74), new Vector2(362, 120), color: Ui.TextDim);
@@ -129,7 +129,7 @@ namespace Veturilo.Viz
             flowChart.SetColors(i => i % 2 == 0 ? new Color(1f, 0.8f, 0.2f, 0.75f) : new Color(0.3f, 0.75f, 1f, 0.75f));
             stationPanel.gameObject.SetActive(false);
 
-            emptyPanel = Ui.Panel("EmptyList", root, new Vector2(1, 1), new Vector2(-20, -590), new Vector2(390, 250));
+            emptyPanel = Ui.Panel("EmptyList", root, new Vector2(1, 1), new Vector2(-20, -622), new Vector2(390, 250));
             emptyTitle = Ui.Label(emptyPanel, "Najdłużej puste teraz", 15, new Vector2(16, -12), new Vector2(360, 22), color: Ui.TextDim);
             for (int i = 0; i < emptyRows.Length; i++)
             {
@@ -212,9 +212,9 @@ namespace Veturilo.Viz
             tooltipRect.gameObject.SetActive(false);
 
             // pomoc
-            helpPanel = Ui.Panel("Help", root, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(760, 600), new Color(0.03f, 0.04f, 0.06f, 0.96f));
+            helpPanel = Ui.Panel("Help", root, new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(780, 680), new Color(0.03f, 0.04f, 0.06f, 0.96f));
             helpPanel.pivot = new Vector2(0.5f, 0.5f);
-            help = Ui.Label(helpPanel, HelpText, 16, new Vector2(30, -24), new Vector2(700, 560));
+            help = Ui.Label(helpPanel, HelpText, 16, new Vector2(30, -24), new Vector2(720, 640));
             helpPanel.gameObject.SetActive(false);
 
             message = Ui.Label(root, "", 22, Vector2.zero, new Vector2(1100, 300), TextAnchor.MiddleCenter, Ui.TextMain);
@@ -240,6 +240,7 @@ namespace Veturilo.Viz
             "T – pokaz z komentarzem · X – porównanie dwóch dni (Shift + , . zmienia dzień po prawej)\n" +
             "F łuki OD · G ślady dnia · U utracony popyt · K korki · P mieszkańcy · M mapa · H ukryj panele\n" +
             "Klik na rower lub ciężarówkę – kamera jedzie za nim (Esc – koniec)\n" +
+            "Warstwa Efekty – bloom, SSAO i odbicia w wodzie (wyłącz na słabszym komputerze)\n" +
             "F12 – zrzut ekranu (folder Screenshots obok projektu / aplikacji)";
 
         static Text KpiRow(Transform parent, string label, ref int y, Color c)
