@@ -5,7 +5,8 @@ Pliki:
   pois.parquet                    punkty POI: category, name, osmid, lat, lon
   cycleways.parquet               drogi rowerowe (GeoParquet, EPSG:4326)
   buildings_srodmiescie.parquet   budynki Srodmiescia z wysokoscia (GeoParquet)
-  basemap.parquet                 podklad mapy dla wizualizacji: woda, zielen, glowne ulice, tory
+  basemap.parquet                 podklad mapy dla wizualizacji: woda, zielen, glowne ulice, mosty, tory, metro
+  buildings_warsaw.parquet        budynki calej Warszawy z wysokoscia (wizualizacja 3D)
   graph_bike.graphml, graph_drive.graphml   grafy drog (z wycinka BBBike, nie z Overpass)
 Odpowiedzi Overpass sa cache'owane w osm/cache (OSMnx), wiec ponowne
 uruchomienie nie pobiera ich drugi raz.
@@ -295,13 +296,25 @@ BASEMAP_GREEN = {
 BASEMAP_MIN_AREA = {"water": 3000, "green": 8000}
 
 
+# klasa zieleni (kolumna cls): 0 las, 1 park, 2 cmentarz, 3 trawa/laka/dzialki - gestosc drzew w wizualizacji
+GREEN_FOREST = {("landuse", "forest"), ("natural", "wood")}
+GREEN_PARK = {("leisure", "park"), ("leisure", "garden"), ("leisure", "recreation_ground"), ("leisure", "golf_course"),
+              ("landuse", "recreation_ground"), ("landuse", "village_green")}
+
+
 def _basemap_kind(tags):
+    """(rodzaj, klasa) obszaru albo (None, None)."""
     if tags.get("natural") == "water" or tags.get("waterway") == "riverbank" or tags.get("landuse") in ("reservoir", "basin"):
-        return "water"
+        return "water", -1
     for key, values in BASEMAP_GREEN.items():
-        if tags.get(key) in values:
-            return "green"
-    return None
+        val = tags.get(key)
+        if val in values:
+            if (key, val) in GREEN_FOREST:
+                return "green", 0
+            if (key, val) in GREEN_PARK:
+                return "green", 1
+            return "green", 2 if val == "cemetery" else 3
+    return None, None
 
 
 def fetch_basemap(log, force=False):
@@ -326,15 +339,24 @@ def fetch_basemap(log, force=False):
     factory = osmium.geom.WKBFactory()
     rows = []
 
+    # linie metra: drogi nalezace do relacji route=subway z ref M1 / M2
+    metro = {}
+    for rel in osmium.FileProcessor(str(pbf), osmium.osm.RELATION).with_filter(osmium.filter.KeyFilter("route")):
+        if rel.tags.get("route") == "subway" and rel.tags.get("ref") in ("M1", "M2"):
+            line = int(rel.tags.get("ref")[1])
+            for m in rel.members:
+                if m.type == "w":
+                    metro[m.ref] = line
+
     areas = (osmium.FileProcessor(str(pbf))
              .with_areas(osmium.filter.KeyFilter("natural", "waterway", "landuse", "leisure"))
              .with_filter(osmium.filter.EntityFilter(osmium.osm.AREA)))
     for area in areas:
-        kind = _basemap_kind(area.tags)
+        kind, cls = _basemap_kind(area.tags)
         if kind is None:
             continue
         try:
-            rows.append((kind, -1, wkb.loads(factory.create_multipolygon(area), hex=True)))
+            rows.append((kind, cls, 0, wkb.loads(factory.create_multipolygon(area), hex=True)))
         except Exception:
             continue
 
@@ -344,19 +366,22 @@ def fetch_basemap(log, force=False):
             .with_filter(osmium.filter.KeyFilter("highway", "railway")))
     for way in ways:
         hw, rw = way.tags.get("highway"), way.tags.get("railway")
-        if hw in BASEMAP_ROADS:
+        if way.id in metro:
+            kind, cls = "metro", metro[way.id]
+        elif hw in BASEMAP_ROADS:
             kind, cls = "road", BASEMAP_ROADS[hw]
         elif rw == "rail" and way.tags.get("service") is None:
             kind, cls = "rail", -1
         else:
             continue
         try:
-            rows.append((kind, cls, wkb.loads(factory.create_linestring(way), hex=True)))
+            bridge = int(way.tags.get("bridge") not in (None, "no"))
+            rows.append((kind, cls, bridge, wkb.loads(factory.create_linestring(way), hex=True)))
         except Exception:
             continue
     shutil.rmtree(tmp, ignore_errors=True)
 
-    gdf = gpd.GeoDataFrame(rows, columns=["kind", "cls", "geometry"], crs="EPSG:4326")
+    gdf = gpd.GeoDataFrame(rows, columns=["kind", "cls", "bridge", "geometry"], crs="EPSG:4326")
     gdf = gdf.clip(box(BBOX["lon_min"], BBOX["lat_min"], BBOX["lon_max"], BBOX["lat_max"]))
     gdf = gdf[~gdf.geometry.is_empty]
     area = gdf.geometry.to_crs("EPSG:2180").area
@@ -367,9 +392,79 @@ def fetch_basemap(log, force=False):
     # ok. 2 m - wystarcza do mapy, a plik jest kilka razy mniejszy
     gdf["geometry"] = gdf.geometry.simplify(0.00002)
     out = pd.DataFrame({"kind": gdf["kind"].values, "cls": gdf["cls"].astype(int).values,
-                        "geometry": gdf.geometry.to_wkb().values})
+                        "bridge": gdf["bridge"].astype(int).values, "geometry": gdf.geometry.to_wkb().values})
     out.to_parquet(path, index=False)
     log(f"  OSM podklad mapy: {out['kind'].value_counts().to_dict()} -> {path.name}")
+
+
+# Domyslna wysokosc budynku bez tagow height / building:levels - wg typu budynku.
+BUILDING_DEFAULT_H = {
+    "apartments": 15.0, "residential": 12.0, "dormitory": 15.0, "hotel": 18.0, "office": 18.0,
+    "house": 7.0, "detached": 7.0, "semidetached_house": 7.0, "terrace": 8.0, "bungalow": 4.0,
+    "commercial": 9.0, "retail": 7.0, "supermarket": 7.0, "industrial": 9.0, "warehouse": 9.0,
+    "garage": 3.0, "garages": 3.0, "shed": 3.0, "carport": 3.0, "roof": 4.0, "kiosk": 3.0,
+    "church": 20.0, "cathedral": 25.0, "school": 12.0, "university": 15.0, "college": 15.0,
+    "hospital": 18.0, "public": 12.0, "civic": 12.0, "train_station": 12.0, "stadium": 25.0,
+}
+
+
+def _height(tags):
+    for key in ("height", "building:height"):
+        v = tags.get(key)
+        if v:
+            try:
+                return float(v.replace("m", "").replace(",", ".").strip())
+            except ValueError:
+                pass
+    lv = tags.get("building:levels")
+    if lv:
+        try:
+            return max(float(lv.split(";")[0].replace(",", ".")), 1.0) * 3.2 + 1.0
+        except ValueError:
+            pass
+    return BUILDING_DEFAULT_H.get(tags.get("building"), 9.0)
+
+
+def fetch_buildings_all(log, force=False):
+    """Budynki calej Warszawy z wysokoscia (tag, kondygnacje albo typ) - do wizualizacji 3D."""
+    path = OSM_DIR / "buildings_warsaw.parquet"
+    if path.exists() and not force:
+        log(f"  OSM budynki Warszawy: juz sa ({path.name})")
+        return
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    import geopandas as gpd
+    import osmium
+    from shapely import wkb
+
+    tmp = Path(tempfile.mkdtemp(prefix="veturilo_osm_"))
+    pbf = tmp / "warsaw.osm.pbf"
+    shutil.copy(_download_pbf(log), pbf)
+    factory = osmium.geom.WKBFactory()
+    rows = []
+    areas = (osmium.FileProcessor(str(pbf))
+             .with_areas(osmium.filter.KeyFilter("building"))
+             .with_filter(osmium.filter.EntityFilter(osmium.osm.AREA)))
+    for area in areas:
+        if area.tags.get("building") in (None, "no", "construction", "ruins"):
+            continue
+        try:
+            rows.append((_height(area.tags), wkb.loads(factory.create_multipolygon(area), hex=True)))
+        except Exception:
+            continue
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    gdf = gpd.GeoDataFrame(rows, columns=["height_m", "geometry"], crs="EPSG:4326")
+    city = gpd.read_file(OSM_DIR / "boundary.geojson").to_crs("EPSG:4326").geometry.iloc[0].buffer(0.003)
+    gdf = gdf[gdf.geometry.intersects(city)]
+    gdf = gdf[gdf.geometry.to_crs("EPSG:2180").area >= 30].copy()
+    gdf["height_m"] = gdf["height_m"].clip(3, 320).round(1)
+    gdf["geometry"] = gdf.geometry.simplify(0.000012)   # ok. 1 m
+    out = pd.DataFrame({"height_m": gdf["height_m"].values, "geometry": gdf.geometry.to_wkb().values})
+    out.to_parquet(path, index=False)
+    log(f"  OSM budynki Warszawy: {len(out)} -> {path.name}")
 
 
 def fetch_all(log, force_graphs=False):
@@ -386,6 +481,7 @@ def fetch_all(log, force_graphs=False):
     fetch_cycleways(ox, polygon, log)
     fetch_buildings(ox, log)
     fetch_basemap(log)
+    fetch_buildings_all(log)
     # Grafy sluza tylko do macierzy odleglosci miedzy stacjami, ktora jest w repo -
     # budujemy je (pobranie ~120 MB) tylko, gdy jej brak albo na zadanie (--force osm).
     if (STATIC / "station_network_distance.parquet").exists() and not force_graphs:

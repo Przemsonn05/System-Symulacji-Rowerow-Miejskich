@@ -22,6 +22,7 @@ namespace Veturilo.Viz
         public int trips;
         public float coverage;
         public string dayType;
+        public float lost;
     }
 
     [Serializable] public class StationsFile { public StationInfo[] stations; }
@@ -70,13 +71,20 @@ namespace Veturilo.Viz
         public Polyline[] boundary;
         public MeshData water;
         public MeshData green;
-        public Road[] roads;      // k: 0 autostrada/ekspresowa, 1 glowna, 2 zbiorcza, 3 lokalna
+        public MeshData forest;
+        public Road[] roads;      // k: 0 autostrada/ekspresowa, 1 glowna, 2 zbiorcza, 3 lokalna; b: 1 = most
         public Polyline[] rail;
+        public Road[] metro;      // k: 1 = M1, 2 = M2
+        public int[] trees;       // [x, z, ...]
         public PopHex[] population;
     }
 
     [Serializable] public class MeshData { public int[] v; public int[] t; }
-    [Serializable] public class Road { public int k; public int[] p; }
+    [Serializable] public class Road { public int k; public int b; public int[] p; }
+
+    [Serializable] public class BuildingsFile { public int tile; public BuildingTile[] tiles; }
+    /// Kafelek budynkow: h - wysokosci, n - liczba wierzcholkow kazdego obrysu, p - wspolrzedne wszystkich obrysow.
+    [Serializable] public class BuildingTile { public float[] h; public int[] n; public int[] p; }
     [Serializable] public class PopHex { public int x; public int z; public int pop; }
 
     // ------------------------------------------------------------------ dzien
@@ -102,7 +110,12 @@ namespace Veturilo.Viz
         public Traffic traffic;
         public Incidents incidents;
         public LooseBikes loose;
+        public LostDemand lost;
     }
+
+    /// Szacowany utracony popyt: cum[stacja * steps + krok] - narastajaco od polnocy (co stepSec),
+    /// rate[stacja * 24 + godzina] - popyt stacji [wypozyczenia / h, gdy sa rowery].
+    [Serializable] public class LostDemand { public int stepSec; public int steps; public float[] cum; public float[] rate; public float total; }
 
     [Serializable] public class StationState { public int[] b; public int[] e; }
 
@@ -125,6 +138,8 @@ namespace Veturilo.Viz
         public int[] arr;
         public int[] route;
         public int[] ebike;
+        public int[] bike;
+        public float[] km;
         public int[] fromSt;
         public int[] toSt;
         public int[] fx;

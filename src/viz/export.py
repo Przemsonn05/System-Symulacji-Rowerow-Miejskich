@@ -7,12 +7,14 @@
 Wynik (domyslnie unity/Assets/StreamingAssets/veturilo/):
   index.json            lista dni + metadane (zrodlo danych, poczatek ukladu wspolrzednych)
   city.json             budynki Srodmiescia (obrys + wysokosc), drogi rowerowe, wybrane POI
-  basemap.json          podklad: granica miasta, Wisla i woda, zielen, glowne ulice, tory, mieszkancy (heksagony)
+  basemap.json          podklad: granica miasta, Wisla i woda, zielen, drzewa, glowne ulice, mosty, tory, metro,
+                        mieszkancy (heksagony)
+  buildings.json        budynki calej Warszawy (OSM) w kafelkach 2 x 2 km
   stations.json         stacje: pozycja, pojemnosc, statystyki, cechy otoczenia
   routes.json           trasy stacja -> stacja (po grafie rowerowym, jesli jest; inaczej prosto)
   truck_routes.json     trasy relokacji (po grafie drogowym, jesli jest; inaczej prosto)
   day_RRRR-MM-DD.json   jeden dzien: stan stacji co 5 min, przejazdy, relokacje, pogoda, KPI,
-                        korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami
+                        korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami, szacowany utracony popyt
 
 Wspolrzedne: metry w ukladzie lokalnym, poczatek = Palac Kultury (x = wschod, z = polnoc).
 Czasy w dniu: sekundy od lokalnej polnocy (Europe/Warsaw), dzien 25.10 ma 25 h.
@@ -113,7 +115,9 @@ def export_city(out):
     city = {"buildings": [], "cycleways": [], "pois": []}
 
     bpath = OSM_DIR / "buildings_srodmiescie.parquet"
-    if bpath.exists():
+    if (OSM_DIR / "buildings_warsaw.parquet").exists():
+        pass  # budynki calej Warszawy ida do buildings.json
+    elif bpath.exists():
         b = pd.read_parquet(bpath)
         for geom_b, h in zip(b["geometry"], b["height_m"].fillna(12.0)):
             geom = wkb.loads(geom_b)
@@ -157,6 +161,76 @@ def export_city(out):
     write_json(out / "city.json", city)
 
 
+BUILDING_TILE = 2000
+
+
+def export_buildings(out):
+    """Budynki calej Warszawy: kafelki 2 x 2 km (osobna siatka na kafelek - Unity pomija niewidoczne).
+    Kafelek: h = wysokosci, n = liczba wierzcholkow obrysu, p = wspolrzedne [x, z, ...] wszystkich obrysow."""
+    import shapely
+    from shapely import wkb
+
+    path = OSM_DIR / "buildings_warsaw.parquet"
+    if not path.exists():
+        log("  brak buildings_warsaw.parquet - budynki tylko w Srodmiesciu (uruchom fetch_static --only osm)")
+        write_json(out / "buildings.json", {"tile": BUILDING_TILE, "tiles": []})
+        return
+    b = pd.read_parquet(path)
+    tiles = {}
+    count = 0
+    for g, h in zip(b["geometry"], b["height_m"]):
+        for poly in shapely.get_parts(_to_metric(wkb.loads(g))):
+            if poly.geom_type != "Polygon" or poly.area < 30:
+                continue
+            cc = np.asarray(poly.exterior.simplify(0.8).coords)[:-1]
+            if len(cc) < 3:
+                continue
+            c = poly.centroid
+            key = (int(c.x // BUILDING_TILE), int(c.y // BUILDING_TILE))
+            t = tiles.setdefault(key, {"h": [], "n": [], "p": []})
+            t["h"].append(round(float(h), 1))
+            t["n"].append(len(cc))
+            t["p"].extend(flat_ints(cc[:, 0], cc[:, 1]))
+            count += 1
+    log(f"  budynki: {count} w {len(tiles)} kafelkach")
+    write_json(out / "buildings.json", {"tile": BUILDING_TILE, "tiles": list(tiles.values())})
+
+
+# gestosc drzew [m2 na drzewo] wg klasy zieleni z osm.py: 0 las, 1 park, 2 cmentarz, 3 trawa (bez drzew)
+TREE_M2 = {0: 160.0, 1: 450.0, 2: 260.0}
+MAX_TREES = 90000
+
+
+def _trees(polys_by_cls, rng):
+    """Losowe polozenia drzew w lasach, parkach i na cmentarzach (staly seed - za kazdym razem te same)."""
+    import shapely
+
+    pts = []
+    total_area = sum(p.area / TREE_M2[c] for c, ps in polys_by_cls.items() if c in TREE_M2 for p in ps)
+    scale = min(1.0, MAX_TREES / max(total_area, 1))
+    for cls, polys in polys_by_cls.items():
+        if cls not in TREE_M2:
+            continue
+        for poly in polys:
+            n = int(poly.area / TREE_M2[cls] * scale)
+            if n <= 0:
+                continue
+            minx, miny, maxx, maxy = poly.bounds
+            k = 0
+            while k < n:
+                xs = rng.uniform(minx, maxx, n * 2)
+                zs = rng.uniform(miny, maxy, n * 2)
+                inside = shapely.contains_xy(poly, xs, zs)
+                for x, z in zip(xs[inside], zs[inside]):
+                    if k >= n:
+                        break
+                    pts.extend((int(x), int(z)))
+                    k += 1
+                if not inside.any():
+                    break
+    return pts
+
+
 def _to_metric(geom):
     import shapely
 
@@ -190,8 +264,8 @@ def export_basemap(out):
     import shapely
     from shapely import wkb
 
-    bm = {"boundary": [], "water": {"v": [], "t": []}, "green": {"v": [], "t": []},
-          "roads": [], "rail": [], "population": []}
+    bm = {"boundary": [], "water": {"v": [], "t": []}, "green": {"v": [], "t": []}, "forest": {"v": [], "t": []},
+          "roads": [], "rail": [], "metro": [], "trees": [], "population": []}
 
     bpath = OSM_DIR / "boundary.geojson"
     if bpath.exists():
@@ -206,20 +280,31 @@ def export_basemap(out):
     if path.exists():
         b = pd.read_parquet(path)
         geoms = [_to_metric(wkb.loads(g)) for g in b["geometry"]]
-        for kind in ("water", "green"):
-            polys = [p for g, k in zip(geoms, b["kind"]) if k == kind
-                     for p in shapely.get_parts(g) if p.geom_type == "Polygon"]
-            bm[kind] = _mesh(polys, 3.0)
-        for g, kind, cls in zip(geoms, b["kind"], b["cls"]):
-            if kind not in ("road", "rail"):
+        bridge = b["bridge"] if "bridge" in b else pd.Series(0, index=b.index)
+        polys = {}
+        for g, k, c in zip(geoms, b["kind"], b["cls"]):
+            if k in ("water", "green"):
+                key = "water" if k == "water" else ("forest" if c == 0 else "green")
+                polys.setdefault(key, []).extend(p for p in shapely.get_parts(g) if p.geom_type == "Polygon")
+        for key, ps in polys.items():
+            bm[key] = _mesh(ps, 3.0)
+        by_cls = {}
+        for g, k, c in zip(geoms, b["kind"], b["cls"]):
+            if k == "green":
+                by_cls.setdefault(int(c), []).extend(p for p in shapely.get_parts(g) if p.geom_type == "Polygon")
+        bm["trees"] = _trees(by_cls, np.random.default_rng(1918))
+        for g, kind, cls, br in zip(geoms, b["kind"], b["cls"], bridge):
+            if kind not in ("road", "rail", "metro"):
                 continue
             for line in shapely.get_parts(g):
                 cc = np.asarray(line.simplify(4.0).coords)
                 if len(cc) >= 2:
                     item = {"p": flat_ints(cc[:, 0], cc[:, 1])}
-                    if kind == "road":
+                    if kind in ("road", "metro"):
                         item["k"] = int(cls)
-                    bm["roads" if kind == "road" else "rail"].append(item)
+                    if kind == "road":
+                        item["b"] = int(br)
+                    bm["roads" if kind == "road" else kind].append(item)
     else:
         log("  brak basemap.parquet - bez Wisly, zieleni i ulic (uruchom fetch_static --only osm)")
 
@@ -231,7 +316,8 @@ def export_basemap(out):
                             for xi, zi, v in zip(x, z, p["population"].fillna(0))]
 
     log(f"  podklad: woda {len(bm['water']['t']) // 3} trojkatow, zielen {len(bm['green']['t']) // 3}, "
-        f"{len(bm['roads'])} odcinkow ulic, {len(bm['rail'])} torow, {len(bm['population'])} heksagonow")
+        f"las {len(bm['forest']['t']) // 3}, {len(bm['trees']) // 2} drzew, {len(bm['roads'])} odcinkow ulic, "
+        f"{len(bm['rail'])} torow, {len(bm['metro'])} odcinkow metra, {len(bm['population'])} heksagonow")
     write_json(out / "basemap.json", bm)
 
 
@@ -316,6 +402,53 @@ def day_loose(a, b):
     out.update(slot=slot.tolist(), x=np.round(x).astype(int).tolist(), z=np.round(z).astype(int).tolist(),
                e=battery.notna().astype(int).tolist())
     return out
+
+
+def demand_rates(sh, cx):
+    """Popyt stacji [wypozyczenia / h, gdy rowery sa dostepne] wg godziny lokalnej i typu dnia (roboczy / wolny).
+
+    Szacunek z godzin, w ktorych stacja miala rowery (popyt na pustej stacji jest niewidoczny).
+    Malo obserwacji -> sciagniecie do profilu calego systemu przeskalowanego wielkoscia stacji."""
+    sh = sh.copy()
+    loc = sh["hour"].dt.tz_convert(TZ)
+    sh["lh"] = loc.dt.hour
+    work = cx.drop_duplicates("local_date").set_index("local_date")["day_type"].eq("workday")
+    sh["wk"] = loc.dt.date.map(work).fillna(True).astype(bool)
+    sh["avail_h"] = sh["minutes_available"] / 60.0
+    g = sh.groupby(["station_id", "lh", "wk"])[["departures", "avail_h"]].sum()
+    sys_prof = sh.groupby(["lh", "wk"])[["departures", "avail_h"]].sum()
+    sys_rate = sys_prof["departures"] / sys_prof["avail_h"].clip(lower=1e-6)
+    st_tot = sh.groupby("station_id")[["departures", "avail_h"]].sum()
+    st_scale = (st_tot["departures"] / st_tot["avail_h"].clip(lower=1e-6)) / (
+        sh["departures"].sum() / max(sh["avail_h"].sum(), 1e-6))
+    prior = sys_rate.reindex(pd.MultiIndex.from_tuples([(lh, wk) for _, lh, wk in g.index])).to_numpy() \
+        * st_scale.reindex(g.index.get_level_values(0)).fillna(1.0).to_numpy()
+    k = 2.0  # sila sciagania: ok. 2 h obserwacji
+    rate = (g["departures"].to_numpy() + k * prior) / (g["avail_h"].to_numpy() + k)
+    return pd.Series(rate, index=g.index)
+
+
+def day_lost(day, a, slots, bikes, order, rates, workday):
+    """Szacowany utracony popyt: na kazdy pomiar (5 min), w ktorym stacja jest pusta, popyt tej stacji
+    o tej godzinie / 12. Wynik: suma narastajaco co 30 min dla kazdej stacji + popyt stacji co godzine."""
+    steps = math.ceil(len(slots) * SLOT_SEC / STEP_SEC)
+    lh = slots.tz_convert(TZ).hour.to_numpy()
+    lost = np.zeros((len(order), steps))
+    rate_h = np.zeros((len(order), 24))
+    bv = bikes.to_numpy()  # sloty x stacje
+    for i, sid in enumerate(order):
+        for h in range(24):
+            rate_h[i, h] = rates.get((sid, h, workday), 0.0)
+        empty = bv[:, i] == 0
+        per_slot = np.where(empty, rate_h[i, lh] / 12.0, 0.0)
+        step = (np.arange(len(slots)) * SLOT_SEC) // STEP_SEC
+        lost[i] = np.cumsum(np.bincount(step, weights=per_slot, minlength=steps)[:steps])
+    return {
+        "stepSec": STEP_SEC, "steps": steps,
+        "cum": np.round(lost, 2).ravel().tolist(),
+        "rate": np.round(rate_h, 2).ravel().tolist(),
+        "total": round(float(lost[:, -1].sum()), 1),
+    }
 
 
 def day_events(a, b):
@@ -489,6 +622,7 @@ def export(out, days_wanted=None, source="observed"):
     reb = pd.read_parquet(PROCESSED / "rebalancing_observed.parquet")
     cx = pd.read_parquet(PROCESSED / "context_hourly.parquet")
     fleet = pd.read_parquet(PROCESSED / "fleet_timeseries.parquet")
+    rates = demand_rates(pd.read_parquet(PROCESSED / "station_hourly.parquet"), cx)
 
     # --- stacje
     st = st[st["station_id"].isin(ot["station_id"].unique())].reset_index(drop=True)
@@ -526,6 +660,7 @@ def export(out, days_wanted=None, source="observed"):
     write_json(out / "stations.json", {"stations": stations})
 
     export_city(out)
+    export_buildings(out)
     export_basemap(out)
 
     # --- dni
@@ -659,9 +794,12 @@ def export(out, days_wanted=None, source="observed"):
             "traffic": day_traffic(a, b, math.ceil(length / STEP_SEC)),
             "incidents": day_incidents(a, b),
             "loose": day_loose(a, b),
+            "lost": day_lost(day, a, slots, bikes, order, rates, day_type == "workday"),
             "trips": {
                 "dep": dep.tolist(), "arr": arr.tolist(), "route": rix,
                 "ebike": t["is_ebike"].fillna(False).astype(int).tolist(),
+                "bike": pd.to_numeric(t["bike"], errors="coerce").fillna(0).astype(np.int64).tolist(),
+                "km": t["network_km"].fillna(t["distance_km"]).fillna(0).round(1).tolist(),
                 "fromSt": from_i, "toSt": to_i,
                 "fx": fx, "fz": fz, "tx": tx, "tz": tz,
             },
@@ -687,11 +825,12 @@ def export(out, days_wanted=None, source="observed"):
         }
         fname = f"day_{day.isoformat()}.json"
         log(f"Dzien {day} ({doc['label']}): pokrycie {coverage:.0%}, {len(dep)} przejazdow, "
-            f"{len(r_dep)} relokacji")
+            f"{len(r_dep)} relokacji, utracony popyt ok. {doc['lost']['total']:.0f}")
         write_json(out / fname, doc)
         index["days"].append({
             "date": day.isoformat(), "label": doc["label"], "file": fname,
             "trips": int(len(dep)), "coverage": round(coverage, 3), "dayType": day_type,
+            "lost": doc["lost"]["total"],
         })
     write_json(out / "index.json", index)
     log("Gotowe.")

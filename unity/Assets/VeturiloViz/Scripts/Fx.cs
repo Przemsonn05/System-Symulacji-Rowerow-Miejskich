@@ -12,6 +12,7 @@ namespace Veturilo.Viz
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
+            go.layer = parent.gameObject.layer;
             var ps = go.AddComponent<ParticleSystem>();
             ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
             var main = ps.main;
@@ -56,6 +57,7 @@ namespace Veturilo.Viz
         {
             var go = new GameObject("Label");
             go.transform.SetParent(parent, false);
+            go.layer = parent.gameObject.layer;
             go.transform.localPosition = new Vector3(0, y, 0);
             var tm = go.AddComponent<TextMesh>();
             tm.font = Ui.DefaultFont;
@@ -78,6 +80,12 @@ namespace Veturilo.Viz
             if (!vis) return;
             label.rotation = cam.transform.rotation;
             label.localScale = Vector3.one * (d * scale);
+        }
+
+        public static void SetLayerRecursive(GameObject go, int layer)
+        {
+            go.layer = layer;
+            foreach (Transform c in go.transform) SetLayerRecursive(c.gameObject, layer);
         }
 
         public static Mesh Disc(int seg = 32)

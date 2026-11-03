@@ -25,6 +25,21 @@ namespace Veturilo.Viz
         ParticleSystem.Particle[] beaconBuf = new ParticleSystem.Particle[64];
 
         public int ActiveCount => active.Count;
+
+        public int TruckOf(Collider c)
+        {
+            if (c == null) return -1;
+            foreach (var kv in active) if (kv.Value.go == c.gameObject) return kv.Key;
+            return -1;
+        }
+
+        public bool PositionOf(int i, out Vector3 pos)
+        {
+            pos = Vector3.zero;
+            if (!active.TryGetValue(i, out var tk)) return false;
+            pos = tk.go.transform.position;
+            return true;
+        }
         public int DoneCount { get; private set; }
         public int BikesMovedToday { get; private set; }
 
@@ -136,7 +151,11 @@ namespace Veturilo.Viz
         Truck Create()
         {
             var root = new GameObject("Truck");
+            root.layer = gameObject.layer;
             root.transform.SetParent(transform, false);
+            var box = root.AddComponent<BoxCollider>();
+            box.center = new Vector3(0, 2.5f * scale, 0);
+            box.size = new Vector3(4f, 5f, 9f) * scale;
             float s = scale;
             Part(root.transform, body, new Vector3(0, 2.0f, -1.2f) * s, new Vector3(2.4f, 2.8f, 5.6f) * s);   // skrzynia
             Part(root.transform, cab, new Vector3(0, 1.5f, 2.6f) * s, new Vector3(2.3f, 2.2f, 1.8f) * s);     // kabina
@@ -153,6 +172,7 @@ namespace Veturilo.Viz
             tm.anchor = TextAnchor.LowerCenter;
             tm.color = Mats.Truck;
             labelGo.GetComponent<MeshRenderer>().sharedMaterial = Ui.DefaultFont.material;
+            Fx.SetLayerRecursive(root, gameObject.layer);
 
             var trail = root.AddComponent<TrailRenderer>();
             trail.sharedMaterial = CityBuilder.Queue(trailMat, 3021);
@@ -185,6 +205,7 @@ namespace Veturilo.Viz
             if (p == null)
             {
                 var g = new GameObject("DeliveryPulse");
+                g.layer = gameObject.layer;
                 g.transform.SetParent(transform, false);
                 g.AddComponent<MeshFilter>().sharedMesh = ringMesh;
                 var r = g.AddComponent<MeshRenderer>();

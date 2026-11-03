@@ -179,12 +179,15 @@ Interaktywna scena 3D Warszawy, w której **odtwarzamy wybrany prawdziwy dzień*
 |---|---|
 | **stacje** jako słupki w trzech widokach: *zapełnienie* (pusta pulsuje na czerwono), *bilans 1 h* (które stacje tracą, a które zyskują rowery), *H2* (gdzie najczęściej brakuje rowerów) | stan stacji co 5 min |
 | **każdy przejazd** jako świecący rower jadący po drogach rowerowych (e-rowery innym kolorem), rowery zostawione poza stacjami | odtworzone przejazdy, `data/loose` |
-| **łuki OD**: najczęstsze trasy ostatniej godziny | przejazdy |
+| **łuki OD**: najczęstsze trasy ostatniej godziny; **ślady całego dnia** narastające do wieczora (główne korytarze rowerowe) | przejazdy |
+| **utracony popyt**: heksagony rosnące tam, gdzie klienci przychodzą do pustej stacji (szacunek) | stan stacji + popyt z `station_hourly` |
 | **ciężarówki operatora** z liczbą przewożonych rowerów | relokacje |
-| **miasto:** Wisła, zieleń, główne ulice, tory, granica Warszawy, budynki Śródmieścia z oknami, drogi rowerowe, metro, uczelnie | OpenStreetMap |
+| **miasto:** ok. 180 tys. budynków całej Warszawy z oknami, Wisła, mosty, zieleń i ok. 90 tys. drzew, główne ulice z latarniami, metro M1/M2, tory, drogi rowerowe, granica miasta | OpenStreetMap |
 | **pora dnia i pogoda:** słońce, zmierzch (zapalają się okna i latarnie), gwiazdy, chmury, mgła, deszcz | Open-Meteo |
 | **korki i utrudnienia** na 10 arteriach, **wydarzenia** (słup światła nad stadionem), **mieszkańcy** (heksagony) | TomTom, `events.csv`, Kontur |
 | **panele:** zegar, pogoda, jakość powietrza, KPI, wykresy dnia, lista stacji pustych najdłużej, karta stacji z otoczeniem | wszystko powyżej |
+
+**Kliknięcie roweru lub ciężarówki** – kamera jedzie za nim (skąd, dokąd, dystans, czas). **X** dzieli ekran na pół i porównuje dwa dni o tej samej godzinie (np. dzień roboczy i niedzielę); po zbudowaniu DES ten sam widok pokaże model obok rzeczywistości.
 
 Klawisz **T** uruchamia **pokaz z komentarzem** (ok. 2 min): kamera, widoki i napisy prowadzą przez cały dzień, od porannego szczytu przez hipotezę H2 do zmierzchu. Liczby w napisach pochodzą z danych.
 

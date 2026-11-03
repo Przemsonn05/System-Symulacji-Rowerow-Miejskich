@@ -117,6 +117,7 @@ namespace Veturilo.Viz
 
         void Pan(Vector2 screenDelta)
         {
+            if (following) UserPanned = true;
             var right = Quaternion.Euler(0, tYaw, 0) * Vector3.right;
             var fwd = Quaternion.Euler(0, tYaw, 0) * Vector3.forward;
             tTarget += right * screenDelta.x + fwd * screenDelta.y;
@@ -135,5 +136,35 @@ namespace Veturilo.Viz
 
         /// Plynny przelot (pokaz): wolniejszy niz zwykle podazanie, do czasu nastepnego Preset.
         public float Smoothing { get; set; } = 8f;
+
+        // ------------------------------------------------- sledzenie obiektu (rower, ciezarowka)
+
+        /// Uzytkownik przesunal widok w trakcie sledzenia (wtedy sledzenie sie konczy; obrot i zoom sa dozwolone).
+        public bool UserPanned { get; private set; }
+        bool following;
+
+        public void StartFollow(float dist)
+        {
+            following = true;
+            UserPanned = false;
+            cinematic = false;
+            tDistance = dist;
+            tPitch = Mathf.Clamp(tPitch, 25f, 45f);
+            Smoothing = 4f;
+        }
+
+        public void Track(Vector3 p)
+        {
+            if (!following) return;
+            tTarget = new Vector3(p.x, 0, p.z);
+            if (cinematic) cinematic = false;
+            tYaw += Time.unscaledDeltaTime * 3f;   // powolny obrot wokol roweru
+        }
+
+        public void StopFollow()
+        {
+            following = false;
+            Smoothing = 8f;
+        }
     }
 }

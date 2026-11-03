@@ -76,6 +76,7 @@ namespace Veturilo.Viz
                 v.Ring = ring.transform;
                 Views.Add(v);
             }
+            Fx.SetLayerRecursive(gameObject, gameObject.layer);
             glow = Fx.GlowSystem(transform, "StationGlow", data.Stations.Length, 3100);
             glowParticles = new ParticleSystem.Particle[data.Stations.Length];
         }

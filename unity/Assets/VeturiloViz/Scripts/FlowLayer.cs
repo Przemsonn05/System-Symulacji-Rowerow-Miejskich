@@ -97,6 +97,7 @@ namespace Veturilo.Viz
         {
             if (k < lines.Count) return lines[k];
             var go = new GameObject("Arc");
+            go.layer = gameObject.layer;
             go.transform.SetParent(transform, false);
             var lr = go.AddComponent<LineRenderer>();
             lr.sharedMaterial = mat;

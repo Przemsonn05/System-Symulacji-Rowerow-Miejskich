@@ -35,15 +35,20 @@ namespace Veturilo.Viz
             Add(13.0f, () => { app.SetMode(ViewMode.Problem); Fly(new Vector3(0, 0, -900), 15f, 48f, 15000f); },
                 () => $"Hipoteza H2: puste stacje są skoncentrowane. 10% stacji odpowiada za {d.Top10Share:P0} czasu pustek, " +
                       $"a {d.NeverEmptyShare:P0} stacji nie było pustych ani razu.");
-            Add(14.8f, () => { Fill(); app.SetLayer("Korki", true); Fly(new Vector3(0, 0, -900), 340f, 38f, 11000f); },
+            Add(14.0f, () => { Fill(); app.SetLayer("Utracony popyt", true); Fly(new Vector3(-400, 0, -1200), 20f, 44f, 13000f); },
+                () => $"Szacowany utracony popyt: do końca dnia ok. {d.Day.lost?.total ?? 0:0} osób przyjdzie do pustej stacji. " +
+                      "Najwyższe heksagony to miejsca, gdzie relokacja da najwięcej.");
+            Add(14.9f, () => { app.SetLayer("Utracony popyt", false); app.SetLayer("Korki", true); Fly(new Vector3(0, 0, -900), 340f, 38f, 11000f); },
                 () => "Kontekst z danych: pogoda, korki TomTom na arteriach (słupki), utrudnienia i wydarzenia – zmienne modelu popytu.");
             Add(16.2f, () => { app.Rig.cinematic = true; },
                 () => "Popołudniowy szczyt – największy ruch dnia.");
             Add(17.6f, () => { app.View(4); Slow(0.8f); },
                 () => "Po zmroku zapalają się okna i latarnie, a ruch rowerów słabnie – pora dnia to jedna ze zmiennych modelu.");
-            Add(20.3f, () => { app.View(1); },
-                () => "Ta sama scena przyjmie wynik symulacji DES – pokażemy model obok rzeczywistości.");
-            Add(21.2f, () => Stop(), null);
+            Add(20.0f, () => { app.SetLayer("Korki", false); app.SetLayer("Ślady dnia", true); app.View(1); Slow(0.8f); },
+                () => "Ślady całego dnia: jasne pasy to główne korytarze rowerowe Warszawy – tędy jeździ najwięcej osób.");
+            Add(21.4f, () => { },
+                () => "Ta sama scena przyjmie wynik symulacji DES – porównanie (X) pokaże model obok rzeczywistości.");
+            Add(22.3f, () => { app.SetLayer("Ślady dnia", false); Stop(); }, null);
         }
 
         void Add(float hour, Action act, Func<string> text) => steps.Add((hour, act, text));
@@ -63,6 +68,9 @@ namespace Veturilo.Viz
             next = 0;
             app.Stations.Selected = null;
             app.SetLayer("Łuki OD", false);
+            app.SetLayer("Ślady dnia", false);
+            app.SetLayer("Utracony popyt", false);
+            app.SetLayer("Korki", false);
             app.SetLayer("Ślady", true);
             app.SeekLocalHour(steps[0].hour - 0.05f);
             app.SetSpeed(Speed);

@@ -12,10 +12,13 @@ namespace Veturilo.Viz
         Canvas canvas;
         Text title, dateLine, clock, tempBig, weatherDesc, weather2, weather3, eventsLine;
         Text dayLabel, speedLabel, tooltip, help, message, caption, modeDesc, emptyTitle;
-        Text kInUse, kTrips, kEmpty, kOver, kTrucks, kFleet;
+        Text kInUse, kTrips, kEmpty, kOver, kTrucks, kFleet, kLost;
+        RectTransform followPanel, compareLeft, compareRight, compareClock, divider;
+        Text followText, cmpLeft, cmpRight, cmpClock;
+        readonly List<GameObject> mainPanels = new List<GameObject>();
         BarChart tripsChart, emptyChart, stationChart, flowChart, timelineChart;
         Slider slider;
-        Button play, tourButton;
+        Button play, tourButton, compareButton;
         readonly List<(Button b, float speed)> speedButtons = new List<(Button, float)>();
         readonly Dictionary<string, Button> layerButtons = new Dictionary<string, Button>();
         readonly Dictionary<ViewMode, Button> modeButtons = new Dictionary<ViewMode, Button>();
@@ -49,7 +52,7 @@ namespace Veturilo.Viz
             eventsLine = Ui.Label(top, "", 15, new Vector2(18, -200), new Vector2(420, 44), color: Mats.Event);
 
             // ------------------------------------------------ lewy: KPI i wykresy
-            var kpi = Ui.Panel("KPI", root, new Vector2(0, 1), new Vector2(20, -294), new Vector2(450, 540));
+            var kpi = Ui.Panel("KPI", root, new Vector2(0, 1), new Vector2(20, -294), new Vector2(450, 576));
             int y = -16;
             kInUse = KpiRow(kpi, "Rowery w drodze", ref y, Mats.Bike);
             kTrips = KpiRow(kpi, "Przejazdy od północy", ref y, Ui.TextMain);
@@ -57,6 +60,7 @@ namespace Veturilo.Viz
             kOver = KpiRow(kpi, "Stacje ponad pojemność", ref y, Mats.Overfull);
             kTrucks = KpiRow(kpi, "Relokacje operatora", ref y, Mats.Truck);
             kFleet = KpiRow(kpi, "Na stacjach / poza obiegiem", ref y, Mats.Ok);
+            kLost = KpiRow(kpi, "Utracony popyt od północy (szac.)", ref y, LostDemandLayer.LostColor(12f));
             Ui.Label(kpi, "Przejazdy na godzinę", 14, new Vector2(18, y - 6), new Vector2(420, 20), color: Ui.TextDim);
             tripsChart = new BarChart(kpi, new Vector2(18, y - 28), new Vector2(414, 92), 25, new Color(1f, 0.8f, 0.2f, 0.6f), Color.white);
             Ui.Label(kpi, "Puste stacje w ciągu dnia (średnio co 30 min)", 14, new Vector2(18, y - 130), new Vector2(420, 20), color: Ui.TextDim);
@@ -82,7 +86,7 @@ namespace Veturilo.Viz
             legends[ViewMode.Fill] = Legend(view, -136, new[]
             {
                 (Mats.Empty, "pusta – pulsuje (klient odchodzi)"), (Mats.Low, "mało rowerów (< 25% stojaków)"),
-                (Mats.Ok, "w normie"), (Mats.Full, "pełna"), (Mats.Overfull, "ponad pojemność (dozwolone)"), (Mats.NoData, "brak danych"),
+                (Mats.Ok, "w normie"), (Mats.Full, "pełna (do 150% stojaków – normalne)"), (Mats.Overfull, "mocno przepełniona (> 150%)"), (Mats.NoData, "brak danych"),
             });
             legends[ViewMode.Balance] = Legend(view, -136, new[]
             {
@@ -152,6 +156,9 @@ namespace Veturilo.Viz
             speedLabel = Ui.Label(bar, "", 14, new Vector2(sx + 6, -18), new Vector2(160, 24), color: Ui.TextDim);
             tourButton = Ui.Button(bar, "Pokaz (T)", new Vector2(sx + 170, -12), new Vector2(120, 32), () => app.ToggleTour(), 15);
             Ui.Button(bar, "Zrzut (F12)", new Vector2(sx + 296, -12), new Vector2(120, 32), () => app.Screenshot(), 15);
+            compareButton = Ui.Button(bar, "Porównaj dni (X)", new Vector2(sx + 422, -12), new Vector2(160, 32), () => app.ToggleCompare(), 15);
+            Ui.Button(bar, "dzień B <", new Vector2(sx + 588, -12), new Vector2(96, 32), () => app.ChangeDayB(-1), 14);
+            Ui.Button(bar, "> ", new Vector2(sx + 688, -12), new Vector2(40, 32), () => app.ChangeDayB(+1), 14);
 
             timelineChart = new BarChart(bar, new Vector2(22, -50), new Vector2(1844, 40), 25, new Color(1f, 0.8f, 0.2f, 0.18f), new Color(1f, 0.8f, 0.2f, 0.45f), false);
             var tcr = timelineChart.Area;
@@ -168,10 +175,29 @@ namespace Veturilo.Viz
                 tr.anchoredPosition = new Vector2(0, 2);
             }
 
-            var hint = Ui.Label(root, "F1 pomoc · T pokaz · V widok stacji · 1–5 kamera · H ukryj panele", 14, Vector2.zero, new Vector2(700, 20), TextAnchor.LowerRight, Ui.TextDim);
+            var hint = Ui.Label(root, "F1 pomoc · T pokaz · X porównaj dni · V widok · klik na rower – śledź", 14, Vector2.zero, new Vector2(700, 20), TextAnchor.LowerRight, Ui.TextDim);
             hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = hint.rectTransform.pivot = new Vector2(1, 0);
             hint.rectTransform.anchoredPosition = new Vector2(-24, 124);
             hint.gameObject.name = "Hint";
+
+            // sledzony rower / ciezarowka (u gory na srodku)
+            followPanel = Ui.Panel("Follow", root, new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(640, 92));
+            followPanel.pivot = new Vector2(0.5f, 1);
+            followText = Ui.Label(followPanel, "", 18, new Vector2(20, -12), new Vector2(600, 74), TextAnchor.UpperCenter);
+            followPanel.gameObject.SetActive(false);
+
+            // porownanie dni: naglowki nad polowami ekranu, zegar na srodku, linia podzialu
+            divider = Ui.Rect("Divider", root, new Vector2(0.5f, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(3, 0));
+            divider.gameObject.AddComponent<Image>().color = new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.9f);
+            compareLeft = Ui.Panel("CompareL", root, new Vector2(0, 1), new Vector2(20, -20), new Vector2(560, 92));
+            cmpLeft = Ui.Label(compareLeft, "", 17, new Vector2(18, -12), new Vector2(530, 76));
+            compareRight = Ui.Panel("CompareR", root, new Vector2(1, 1), new Vector2(-20, -20), new Vector2(560, 92));
+            cmpRight = Ui.Label(compareRight, "", 17, new Vector2(18, -12), new Vector2(530, 76));
+            compareClock = Ui.Panel("CompareClock", root, new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(190, 74));
+            compareClock.pivot = new Vector2(0.5f, 1);
+            cmpClock = Ui.Label(compareClock, "", 48, new Vector2(0, -8), new Vector2(190, 60), TextAnchor.UpperCenter, style: FontStyle.Bold);
+            foreach (var r in new[] { divider, compareLeft, compareRight, compareClock }) r.gameObject.SetActive(false);
+            foreach (var name in new[] { "Info", "KPI", "View" }) mainPanels.Add(root.Find(name).gameObject);
 
             // napisy pokazu (nad osia czasu, na srodku)
             captionPanel = Ui.Panel("Caption", root, new Vector2(0.5f, 0), new Vector2(0, 150), new Vector2(980, 86), new Color(0.02f, 0.03f, 0.05f, 0.82f));
@@ -211,7 +237,9 @@ namespace Veturilo.Viz
             "Klik na stację – karta stacji · Esc – zamknij\n" +
             "Spacja – start/pauza · ← → – 15 min · [ ] – wolniej/szybciej · , . – poprzedni/następny dzień\n" +
             "1 miasto · 2 Śródmieście · 3 z góry · 4 nad ulicami · 5 Wisła i mosty · C kamera kinowa\n" +
-            "T – pokaz z komentarzem · F – łuki OD · K – korki · P – mieszkańcy · M – mapa · H – ukryj panele\n" +
+            "T – pokaz z komentarzem · X – porównanie dwóch dni (Shift + , . zmienia dzień po prawej)\n" +
+            "F łuki OD · G ślady dnia · U utracony popyt · K korki · P mieszkańcy · M mapa · H ukryj panele\n" +
+            "Klik na rower lub ciężarówkę – kamera jedzie za nim (Esc – koniec)\n" +
             "F12 – zrzut ekranu (folder Screenshots obok projektu / aplikacji)";
 
         static Text KpiRow(Transform parent, string label, ref int y, Color c)
@@ -295,6 +323,7 @@ namespace Veturilo.Viz
             kOver.text = known ? k.overfull[slot].ToString() : "–";
             kTrucks.text = $"{app.Trucks.DoneCount} <size=14><color=#9aa3b0>({app.Trucks.BikesMovedToday} rowerów)</color></size>";
             int away = k.awayLong != null && k.awayLong.Length > slot ? k.awayLong[slot] : -1;
+            kLost.text = d.HasLost ? $"≈ {d.TotalLostAt(t):0} <size=14><color=#9aa3b0>osób</color></size>" : "–";
             kFleet.text = (known ? k.atStations[slot].ToString() : "–") + (away >= 0 ? $" / {away}" : "");
 
             int hour = Mathf.Clamp(Mathf.FloorToInt(t / 3600f), 0, 24);
@@ -310,6 +339,8 @@ namespace Veturilo.Viz
             foreach (var (b, s) in speedButtons) Ui.SetOn(b, Mathf.Approximately(s, app.Speed));
             speedLabel.text = $"1 s = {app.Speed / 60f:0.#} min";
             Ui.SetOn(tourButton, app.TourRunning);
+            Ui.SetOn(compareButton, app.Comparing);
+            if (app.Comparing) UpdateCompare(d, t);
 
             foreach (var kv in modeButtons) Ui.SetOn(kv.Value, kv.Key == app.Stations.Mode);
             foreach (var kv in legends) kv.Value.SetActive(kv.Key == app.Stations.Mode);
@@ -338,8 +369,8 @@ namespace Veturilo.Viz
         void UpdateStation(DataStore d, float t)
         {
             var v = app.Stations.Selected;
-            stationPanel.gameObject.SetActive(v != null && Visible);
-            emptyPanel.gameObject.SetActive(v == null && Visible);
+            stationPanel.gameObject.SetActive(v != null && Visible && !app.Comparing);
+            emptyPanel.gameObject.SetActive(v == null && Visible && !app.Comparing);
             if (v == null) return;
             var s = v.Info;
             stName.text = s.name;
@@ -353,6 +384,7 @@ namespace Veturilo.Viz
                 $"\npusta przez {s.shareEmpty:P0} czasu ({rank}. z {d.Stations.Length}) · przepełniona {s.shareOverfull:P0}" +
                 $"\n300 m: {s.nRestaurants} lokali, {s.nBars + s.nCafes} barów/kawiarni, {s.nOffices} biur, {s.nUniversities} uczelni" +
                 $"\n500 m: {s.population} mieszkańców · {s.transitDepartures} odjazdów komunikacji" +
+                (d.HasLost ? $"\npopyt teraz ≈ {d.RateAt(v.Index, t):0.0}/h · utracony dziś ≈ {d.LostAt(v.Index, t):0.0} os." : "") +
                 "\n" + (s.distMetro >= 0 ? $"metro {s.distMetro} m · " : "") + (s.distCenter >= 0 ? $"centrum {s.distCenter / 1000f:0.0} km · " : "") + $"{s.elevation:0} m n.p.m.";
             if (chartFor != v)
             {
@@ -421,6 +453,40 @@ namespace Veturilo.Viz
             tooltipRect.anchoredPosition = InputCompat.MousePosition / scale + new Vector2(16, 16);
         }
 
+        public void SetFollow(string text)
+        {
+            if (followPanel == null) return;
+            followPanel.gameObject.SetActive(text != null && !app.Comparing);
+            if (text != null) followText.text = text;
+        }
+
+        public void SetCompare(bool on)
+        {
+            foreach (var g in mainPanels) g.SetActive(!on && Visible);
+            foreach (var r in new[] { divider, compareLeft, compareRight, compareClock }) r.gameObject.SetActive(on);
+            followPanel.gameObject.SetActive(false);
+        }
+
+        void UpdateCompare(DataStore a, float t)
+        {
+            var b = app.DataB; float tb = app.TimeB;
+            cmpClock.text = a.ClockText(t);
+            cmpLeft.text = CompareText("A", a, t, app.Bikes.ActiveCount, app.Bikes.StartedCount);
+            cmpRight.text = CompareText("B", b, tb, app.BikesB.ActiveCount, app.BikesB.StartedCount);
+        }
+
+        static string CompareText(string side, DataStore d, float t, int inUse, int started)
+        {
+            var day = d.Day; int slot = d.SlotAt(t);
+            bool known = day.kpi.known[slot] == 1;
+            float temp = d.HourValue(day.hours.temp, t), precip = d.HourValue(day.hours.precip, t);
+            return $"<b><color=#ffcc33>{side}</color>  {day.label} · {DataStore.DayTypeText(day.dayType)}</b>" +
+                   $"  <color=#9aa3b0>{temp:0}°C{(precip > 0.05f ? $", deszcz {precip:0.0} mm/h" : "")}</color>\n" +
+                   $"w drodze <b>{inUse}</b> · przejazdy <b>{started}</b> z {day.trips.dep.Length} · " +
+                   $"puste <b><color=#f23340>{(known ? day.kpi.empty[slot].ToString() : "–")}</color></b>" +
+                   (d.HasLost ? $" · utracony popyt <b>≈ {d.TotalLostAt(t):0}</b>" : "");
+        }
+
         public void ShowCaption(string text, float seconds)
         {
             caption.text = text;
@@ -434,7 +500,9 @@ namespace Veturilo.Viz
         {
             Visible = !Visible;
             foreach (Transform c in canvas.transform)
-                if (c.name != "Help" && c.name != "Station" && c.name != "EmptyList" && c.name != "Tooltip" && c.name != "Caption" && c.name != "Message")
+                if (c.name != "Help" && c.name != "Station" && c.name != "EmptyList" && c.name != "Tooltip" && c.name != "Caption" && c.name != "Message"
+                    && c.name != "Follow" && !c.name.StartsWith("Compare") && c.name != "Divider"
+                    && !(app.Comparing && (c.name == "Info" || c.name == "KPI" || c.name == "View")))
                     c.gameObject.SetActive(Visible);
         }
 

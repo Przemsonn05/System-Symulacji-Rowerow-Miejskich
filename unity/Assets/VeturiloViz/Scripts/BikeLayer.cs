@@ -36,6 +36,25 @@ namespace Veturilo.Viz
         Camera cam;
 
         public int ActiveCount => active.Count;
+
+        /// Przejazd, ktorego rower trafil promien (klikniecie), albo -1.
+        public int TripOf(Collider c)
+        {
+            if (c == null) return -1;
+            foreach (var kv in active) if (kv.Value.go == c.gameObject) return kv.Key;
+            return -1;
+        }
+
+        /// Polozenie roweru danego przejazdu (false, gdy przejazd sie skonczyl albo jeszcze nie zaczal).
+        public bool PositionOf(int trip, out Vector3 pos)
+        {
+            pos = Vector3.zero;
+            if (!active.TryGetValue(trip, out var b)) return false;
+            pos = b.go.transform.position;
+            return true;
+        }
+
+        public Route RouteOfTrip(int trip) => RouteOf(trip);
         public int StartedCount => next;
         public int LooseCount { get; private set; }
 
@@ -183,8 +202,12 @@ namespace Veturilo.Viz
         {
             foreach (var b in pool) if (!b.go.activeSelf) return b;
             var go = new GameObject("Bike");
+            go.layer = gameObject.layer;
             go.transform.SetParent(transform, false);
             go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            // wiekszy niz rower - latwiej kliknac
+            var col = go.AddComponent<SphereCollider>();
+            col.radius = 1.6f;
             var r = go.AddComponent<MeshRenderer>();
             r.shadowCastingMode = ShadowCastingMode.Off;
             r.receiveShadows = false;

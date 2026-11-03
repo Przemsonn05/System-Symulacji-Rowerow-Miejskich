@@ -1,6 +1,6 @@
-// Geometria miasta: podloze, Wisla i woda, zielen, glowne ulice i tory (OSM), granica Warszawy,
-// budynki 3D Srodmiescia (obrys OSM wyciagniety na wysokosc, okna swiecace noca), drogi rowerowe,
-// POI z opisami, warstwa mieszkancow (heksagony).
+// Geometria miasta: podloze, Wisla i woda, zielen i lasy, drzewa, glowne ulice z latarniami, mosty, tory, metro,
+// granica Warszawy, budynki 3D calego miasta (obrysy OSM wyciagniete na wysokosc, okna swiecace noca),
+// drogi rowerowe, POI z opisami, warstwa mieszkancow (heksagony).
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -66,12 +66,15 @@ namespace Veturilo.Viz
     public class CityBuilder
     {
         // Wysokosci warstw plaskich - odstepy wystarczajace przy kamerze z daleka (near plane rosnie z odlegloscia)
-        const float YGreen = 0.8f, YWater = 1.6f, YPop = 2.4f, YRail = 3.0f, YRoads = 3.4f, YCycle = 4.2f, YBoundary = 5f;
+        const float YGreen = 0.8f, YForest = 1.0f, YWater = 1.6f, YPop = 2.4f, YRail = 3.0f, YRoads = 3.4f,
+                    YMetro = 3.8f, YCycle = 4.2f, YBoundary = 5f, YBridge = 11f;
 
         public GameObject Buildings, Cycleways, Ground, Pois, Basemap, Population, Roads;
         public readonly List<(Transform t, string category)> PoiLabels = new List<(Transform, string)>();
+        public int BuildingCount { get; private set; }
         readonly List<Material> facades = new List<Material>();
         Material roadMat, boundaryMat;
+        StreetLights lights;
 
         public void Build(DataStore data, Transform parent)
         {
@@ -79,24 +82,27 @@ namespace Veturilo.Viz
             Basemap = BuildBasemap(data.Basemap, parent);
             Population = BuildPopulation(data.Basemap, parent);
             Population.SetActive(false);
-            Buildings = BuildBuildings(data.City.buildings, parent);
+            Buildings = data.Buildings?.tiles != null && data.Buildings.tiles.Length > 0
+                ? BuildBuildingTiles(data.Buildings, parent)
+                : BuildBuildings(data.City.buildings, parent);
             Cycleways = BuildCycleways(data.City.cycleways, parent);
             Pois = BuildPois(data.City.pois, parent);
         }
 
-        /// Pora dnia: okna i latarnie swieca wieczorem (night01: 0 dzien .. 1 noc).
+        /// Pora dnia: okna, latarnie i ulice swieca wieczorem (night01: 0 dzien .. 1 noc).
         public void SetNight(float night01)
         {
-            var emission = new Color(1f, 0.95f, 0.85f) * (night01 * 1.6f);
+            var emission = new Color(1f, 0.95f, 0.85f) * (night01 * 1.7f);
             foreach (var m in facades)
                 if (m.HasProperty("_EmissionColor")) m.SetColor("_EmissionColor", emission);
             if (roadMat != null)
             {
-                var day = new Color(0.50f, 0.52f, 0.57f, 0.55f);
+                var day = new Color(0.52f, 0.54f, 0.58f, 0.6f);
                 var night = new Color(1.00f, 0.66f, 0.30f, 0.95f);
                 roadMat.color = Color.Lerp(day, night, night01);
             }
             if (boundaryMat != null) boundaryMat.color = Color.Lerp(new Color(1f, 0.8f, 0.2f, 0.45f), new Color(1f, 0.8f, 0.2f, 0.7f), night01);
+            if (lights != null) lights.SetNight(night01);
         }
 
         GameObject BuildGround(Transform parent)
@@ -115,7 +121,7 @@ namespace Veturilo.Viz
             var grid = new GameObject("Grid1km");
             grid.transform.SetParent(g.transform.parent, false);
             var verts = new List<Vector3>(); var cols = new List<Color>(); var tris = new List<int>();
-            var gc = new Color(1, 1, 1, 0.025f);
+            var gc = new Color(1, 1, 1, 0.02f);
             for (int k = -20; k <= 20; k++)
             {
                 AddQuadLine(verts, cols, tris, new Vector2(k * 1000, -20000), new Vector2(k * 1000, 20000), 6f, 0.2f, gc);
@@ -134,27 +140,47 @@ namespace Veturilo.Viz
             if (bm == null) return root;
 
             FlatMesh(root.transform, "Green", bm.green, YGreen, Mats.Lit(Mats.Green, 0.1f));
-            var water = FlatMesh(root.transform, "Water", bm.water, YWater, Mats.Lit(Mats.Water, 0.88f));
+            FlatMesh(root.transform, "Forest", bm.forest, YForest, Mats.Lit(Mats.Forest, 0.05f));
+            var water = FlatMesh(root.transform, "Water", bm.water, YWater, Mats.Lit(Mats.Water, 0.9f));
             if (water != null) water.GetComponent<MeshRenderer>().receiveShadows = true;
 
-            // ulice: szerokosc i jasnosc wg klasy; kolor (dzien szary / noc jak latarnie) z materialu
+            // ulice: szerokosc i jasnosc wg klasy; kolor (dzien szary / noc jak latarnie) z materialu; mosty wyzej
             Roads = new GameObject("Roads");
             Roads.transform.SetParent(root.transform, false);
+            float[] width = { 24f, 17f, 12f, 8f };
             if (bm.roads != null)
             {
-                float[] width = { 24f, 17f, 12f, 8f };
                 float[] bright = { 1f, 0.85f, 0.62f, 0.42f };
                 var verts = new List<Vector3>(); var cols = new List<Color>(); var tris = new List<int>();
+                var deck = new MeshParts();
                 foreach (var r in bm.roads)
                 {
                     if (r.p == null) continue;
                     int k = Mathf.Clamp(r.k, 0, 3);
                     var c = new Color(bright[k], bright[k], bright[k], 1f);
+                    float y = r.b == 1 ? YBridge + 0.4f : YRoads;
                     for (int i = 0; i + 3 < r.p.Length; i += 2)
-                        AddQuadLine(verts, cols, tris, new Vector2(r.p[i], r.p[i + 1]), new Vector2(r.p[i + 2], r.p[i + 3]), width[k], YRoads, c);
+                    {
+                        var a = new Vector2(r.p[i], r.p[i + 1]); var b = new Vector2(r.p[i + 2], r.p[i + 3]);
+                        AddQuadLine(verts, cols, tris, a, b, width[k], y, c);
+                        if (r.b == 1) AddDeck(deck, a, b, width[k] + 5f, YBridge);
+                    }
                 }
                 roadMat = Queue(Mats.Vertex(Color.white), 3001);
                 AddMesh(Roads, verts, cols, tris, roadMat);
+                if (deck.v.Count > 0)
+                {
+                    var go = new GameObject("Bridges");
+                    go.transform.SetParent(root.transform, false);
+                    var mesh = new Mesh { indexFormat = IndexFormat.UInt32 };
+                    mesh.SetVertices(deck.v); mesh.SetNormals(deck.n); mesh.SetTriangles(deck.walls, 0);
+                    mesh.RecalculateBounds();
+                    go.AddComponent<MeshFilter>().sharedMesh = mesh;
+                    var mr = go.AddComponent<MeshRenderer>();
+                    mr.sharedMaterial = Mats.Lit(new Color(0.55f, 0.55f, 0.56f), 0.2f);
+                    mr.shadowCastingMode = ShadowCastingMode.On;
+                }
+                lights = StreetLights.Create(root.transform, bm.roads, width);
             }
             if (bm.rail != null)
             {
@@ -167,6 +193,20 @@ namespace Veturilo.Viz
                         AddQuadLine(verts, cols, tris, new Vector2(r.p[i], r.p[i + 1]), new Vector2(r.p[i + 2], r.p[i + 3]), 7f, YRail, c);
                 AddMesh(go, verts, cols, tris, Queue(Mats.Vertex(Color.white), 3000));
             }
+            if (bm.metro != null && bm.metro.Length > 0)
+            {
+                // metro: M1 niebieskie, M2 czerwone (kolory linii warszawskiego metra)
+                var go = new GameObject("Metro");
+                go.transform.SetParent(root.transform, false);
+                var verts = new List<Vector3>(); var cols = new List<Color>(); var tris = new List<int>();
+                foreach (var r in bm.metro)
+                {
+                    var c = r.k == 1 ? new Color(0.20f, 0.45f, 1f, 0.8f) : new Color(1f, 0.22f, 0.22f, 0.8f);
+                    for (int i = 0; r.p != null && i + 3 < r.p.Length; i += 2)
+                        AddQuadLine(verts, cols, tris, new Vector2(r.p[i], r.p[i + 1]), new Vector2(r.p[i + 2], r.p[i + 3]), 16f, YMetro, c);
+                }
+                AddMesh(go, verts, cols, tris, Queue(Mats.Vertex(Color.white), 3002));
+            }
             if (bm.boundary != null)
             {
                 var go = new GameObject("Boundary");
@@ -178,7 +218,35 @@ namespace Veturilo.Viz
                 boundaryMat = Queue(Mats.Vertex(Color.white), 3004);
                 AddMesh(go, verts, cols, tris, boundaryMat);
             }
+            if (bm.trees != null && bm.trees.Length > 1) InstancedTrees.Create(root.transform, bm.trees);
             return root;
+        }
+
+        /// Pomost: plyta grubosci 4 m z bokami (ciemniejszy spod widac z kamery nisko nad Wisla).
+        static void AddDeck(MeshParts m, Vector2 a, Vector2 b, float width, float y)
+        {
+            Vector2 d = b - a;
+            if (d.sqrMagnitude < 0.01f) return;
+            Vector2 n2 = new Vector2(-d.y, d.x).normalized * (width * 0.5f);
+            float y0 = y - 4f;
+            var corners = new[] { a + n2, b + n2, b - n2, a - n2 };
+            // gora
+            int s = m.v.Count;
+            foreach (var c in corners) { m.v.Add(new Vector3(c.x, y, c.y)); m.n.Add(Vector3.up); }
+            m.walls.Add(s); m.walls.Add(s + 1); m.walls.Add(s + 2); m.walls.Add(s); m.walls.Add(s + 2); m.walls.Add(s + 3);
+            m.walls.Add(s); m.walls.Add(s + 2); m.walls.Add(s + 1); m.walls.Add(s); m.walls.Add(s + 3); m.walls.Add(s + 2);
+            // boki
+            for (int side = 0; side < 2; side++)
+            {
+                Vector2 p = side == 0 ? a + n2 : a - n2, q = side == 0 ? b + n2 : b - n2;
+                var nn = new Vector3(n2.x, 0, n2.y).normalized * (side == 0 ? 1 : -1);
+                s = m.v.Count;
+                m.v.Add(new Vector3(p.x, y0, p.y)); m.v.Add(new Vector3(q.x, y0, q.y));
+                m.v.Add(new Vector3(q.x, y, q.y)); m.v.Add(new Vector3(p.x, y, p.y));
+                for (int k = 0; k < 4; k++) m.n.Add(nn);
+                m.walls.Add(s); m.walls.Add(s + 1); m.walls.Add(s + 2); m.walls.Add(s); m.walls.Add(s + 2); m.walls.Add(s + 3);
+                m.walls.Add(s); m.walls.Add(s + 2); m.walls.Add(s + 1); m.walls.Add(s); m.walls.Add(s + 3); m.walls.Add(s + 2);
+            }
         }
 
         static GameObject FlatMesh(Transform parent, string name, MeshData d, float y, Material m)
@@ -236,22 +304,58 @@ namespace Veturilo.Viz
 
         // ---------------------------------------------------------------- budynki
 
+        // trzy klasy wysokosci = trzy odcienie (domy i kamienice cieplejsze, bloki i biurowce chlodniejsze, wiezowce szklane)
+        static readonly (float max, Color color, Color roof)[] Classes =
+        {
+            (16f, new Color(0.93f, 0.88f, 0.80f), new Color(0.50f, 0.44f, 0.40f)),
+            (50f, new Color(0.88f, 0.89f, 0.91f), new Color(0.46f, 0.47f, 0.50f)),
+            (9999f, new Color(0.72f, 0.84f, 0.98f), new Color(0.40f, 0.46f, 0.55f)),
+        };
+
+        static int ClassOf(float h) => h <= Classes[0].max ? 0 : h <= Classes[1].max ? 1 : 2;
+
+        /// Budynki calej Warszawy: osobna siatka na kafelek 2 x 2 km i klase wysokosci (Unity pomija kafelki poza kadrem).
+        GameObject BuildBuildingTiles(BuildingsFile file, Transform parent)
+        {
+            var root = new GameObject("Buildings");
+            root.transform.SetParent(parent, false);
+            var mats = new Material[3][];
+            for (int c = 0; c < 3; c++)
+            {
+                var facade = Mats.Facade(Classes[c].color, Mats.FacadeTexture, Mats.WindowsTexture);
+                facades.Add(facade);
+                mats[c] = new[] { facade, Mats.Lit(Classes[c].roof, c == 2 ? 0.5f : 0.1f) };
+            }
+            var poly = new List<Vector2>();
+            var parts = new MeshParts[3];
+            foreach (var tile in file.tiles)
+            {
+                for (int c = 0; c < 3; c++) parts[c] = new MeshParts();
+                int off = 0;
+                for (int b = 0; b < tile.h.Length; b++)
+                {
+                    int n = tile.n[b];
+                    poly.Clear();
+                    for (int i = 0; i < n; i++) poly.Add(new Vector2(tile.p[off + 2 * i], tile.p[off + 2 * i + 1]));
+                    off += 2 * n;
+                    if (Triangulator.SignedArea(poly) < 0) poly.Reverse();
+                    Extrude(poly, tile.h[b], parts[ClassOf(tile.h[b])]);
+                    BuildingCount++;
+                }
+                for (int c = 0; c < 3; c++)
+                    if (parts[c].v.Count > 0) PartsObject(root.transform, "Tile_" + c, parts[c], mats[c]);
+            }
+            return root;
+        }
+
+        /// Starszy eksport: tylko budynki Srodmiescia (city.json).
         GameObject BuildBuildings(Building[] list, Transform parent)
         {
             var root = new GameObject("Buildings");
             root.transform.SetParent(parent, false);
             if (list == null) return root;
-
-            // trzy klasy wysokosci = trzy odcienie (kamienice cieplejsze, biurowce chlodniejsze, wiezowce szklane)
-            var classes = new[]
-            {
-                (max: 20f, color: new Color(0.80f, 0.76f, 0.70f), roof: new Color(0.36f, 0.33f, 0.31f)),
-                (max: 60f, color: new Color(0.72f, 0.74f, 0.78f), roof: new Color(0.33f, 0.35f, 0.38f)),
-                (max: 9999f, color: new Color(0.62f, 0.74f, 0.90f), roof: new Color(0.30f, 0.36f, 0.44f)),
-            };
             var parts = new MeshParts[3];
             for (int c = 0; c < 3; c++) parts[c] = new MeshParts();
-
             var poly = new List<Vector2>();
             foreach (var b in list)
             {
@@ -259,26 +363,30 @@ namespace Veturilo.Viz
                 poly.Clear();
                 for (int i = 0; i + 1 < b.p.Length; i += 2) poly.Add(new Vector2(b.p[i], b.p[i + 1]));
                 if (Triangulator.SignedArea(poly) < 0) poly.Reverse();
-                int c = b.h <= classes[0].max ? 0 : b.h <= classes[1].max ? 1 : 2;
-                Extrude(poly, b.h, parts[c]);
+                Extrude(poly, b.h, parts[ClassOf(b.h)]);
+                BuildingCount++;
             }
             for (int c = 0; c < 3; c++)
             {
-                var go = new GameObject("Buildings_" + c);
-                go.transform.SetParent(root.transform, false);
-                var p = parts[c];
-                var mesh = new Mesh { indexFormat = IndexFormat.UInt32, subMeshCount = 2 };
-                mesh.SetVertices(p.v); mesh.SetNormals(p.n); mesh.SetUVs(0, p.uv);
-                mesh.SetTriangles(p.walls, 0); mesh.SetTriangles(p.roofs, 1);
-                mesh.RecalculateBounds();
-                go.AddComponent<MeshFilter>().sharedMesh = mesh;
-                var mr = go.AddComponent<MeshRenderer>();
-                var facade = Mats.Facade(classes[c].color, Mats.FacadeTexture, Mats.WindowsTexture);
+                var facade = Mats.Facade(Classes[c].color, Mats.FacadeTexture, Mats.WindowsTexture);
                 facades.Add(facade);
-                mr.sharedMaterials = new[] { facade, Mats.Lit(classes[c].roof, c == 2 ? 0.5f : 0.1f) };
-                mr.shadowCastingMode = ShadowCastingMode.On;
+                PartsObject(root.transform, "Buildings_" + c, parts[c], new[] { facade, Mats.Lit(Classes[c].roof, 0.1f) });
             }
             return root;
+        }
+
+        static void PartsObject(Transform parent, string name, MeshParts p, Material[] mats)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(parent, false);
+            var mesh = new Mesh { indexFormat = IndexFormat.UInt32, subMeshCount = 2 };
+            mesh.SetVertices(p.v); mesh.SetNormals(p.n); mesh.SetUVs(0, p.uv);
+            mesh.SetTriangles(p.walls, 0); mesh.SetTriangles(p.roofs, 1);
+            mesh.RecalculateBounds();
+            go.AddComponent<MeshFilter>().sharedMesh = mesh;
+            var mr = go.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = mats;
+            mr.shadowCastingMode = ShadowCastingMode.On;
         }
 
         class MeshParts
@@ -297,7 +405,7 @@ namespace Veturilo.Viz
             // Triangulate daje CCW z gory (x,z); Unity jest lewoskretny, wiec odwracamy kolejnosc
             for (int i = 0; i < tri.Count; i += 3) { m.roofs.Add(start + tri[i]); m.roofs.Add(start + tri[i + 2]); m.roofs.Add(start + tri[i + 1]); }
             // sciany (osobne wierzcholki = ostre krawedzie); u = obwod, v = wysokosc - okna co 4 m i 3,3 m
-            float u = (poly[0].x * 0.37f + poly[0].y * 0.61f) % Mats.FacadeTileU; // przesuniecie - rozne wzory okien
+            float u = Mathf.Abs(poly[0].x * 0.37f + poly[0].y * 0.61f) % Mats.FacadeTileU; // przesuniecie - rozne wzory okien
             for (int i = 0; i < poly.Count; i++)
             {
                 Vector2 a = poly[i], b = poly[(i + 1) % poly.Count];
@@ -364,7 +472,8 @@ namespace Veturilo.Viz
                 go.transform.SetParent(root.transform, false);
                 go.transform.position = new Vector3(p.x, 60f, p.z);
                 var tm = go.AddComponent<TextMesh>();
-                tm.text = prefix + (string.IsNullOrEmpty(p.n) ? p.c : p.n);
+                string name = string.IsNullOrEmpty(p.n) ? p.c : p.n;
+                tm.text = prefix + name.Replace("PKP ", "").Replace("Warszawa ", "W-wa ");
                 tm.font = font;
                 tm.fontSize = 64;
                 tm.characterSize = 0.1f;   // ok. 0,64 m wysokosci; skalowane z odlegloscia w VeturiloApp

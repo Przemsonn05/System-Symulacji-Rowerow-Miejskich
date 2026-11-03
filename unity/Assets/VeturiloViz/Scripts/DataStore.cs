@@ -56,6 +56,7 @@ namespace Veturilo.Viz
         public StationInfo[] Stations { get; private set; }
         public CityFile City { get; private set; }
         public BasemapFile Basemap { get; private set; }
+        public BuildingsFile Buildings { get; private set; }
         public Route[] BikeRoutes { get; private set; }
         public Route[] TruckRoutes { get; private set; }
         public DayFile Day { get; private set; }
@@ -72,6 +73,18 @@ namespace Veturilo.Viz
         // dzien: skumulowane wypozyczenia i zwroty na stacji (indeks = numer pomiaru 5 min)
         int[][] depCum, arrCum;
         List<int>[] looseBySlot, incidentsByStep;
+
+        public DataStore() { }
+
+        /// Drugi zestaw danych (porownanie dwoch dni) - wspolne dane statyczne, osobny dzien.
+        public DataStore(DataStore shared)
+        {
+            Root = shared.Root; Index = shared.Index; Stations = shared.Stations; City = shared.City;
+            Basemap = shared.Basemap; Buildings = shared.Buildings;
+            BikeRoutes = shared.BikeRoutes; TruckRoutes = shared.TruckRoutes;
+            EmptyRank = shared.EmptyRank; Top10Share = shared.Top10Share; Top20Share = shared.Top20Share;
+            NeverEmptyShare = shared.NeverEmptyShare; Gini = shared.Gini;
+        }
 
         public bool Load()
         {
@@ -95,6 +108,8 @@ namespace Veturilo.Viz
             // podklad jest opcjonalny (starszy eksport go nie ma)
             try { Basemap = Read<BasemapFile>("basemap.json"); }
             catch (Exception e) { Debug.LogWarning("Veturilo: brak podkładu mapy (" + e.Message + ")"); }
+            try { Buildings = Read<BuildingsFile>("buildings.json"); }
+            catch (Exception e) { Debug.LogWarning("Veturilo: brak budynków całej Warszawy (" + e.Message + ")"); }
             ComputeConcentration();
             return true;
         }
@@ -261,6 +276,37 @@ namespace Veturilo.Viz
         public int StepAt(float t) => Mathf.Clamp(Mathf.FloorToInt(t / 1800f), 0, Mathf.Max(incidentsByStep.Length - 1, 0));
         public List<int> IncidentsAt(float t) => incidentsByStep != null && incidentsByStep.Length > 0
             ? incidentsByStep[StepAt(t)] : new List<int>();
+
+        // ---------------------------------------------------------------- utracony popyt
+
+        public bool HasLost => Day?.lost?.cum != null && Day.lost.cum.Length > 0;
+
+        /// Szacowany utracony popyt na stacji od polnocy do chwili t (interpolacja miedzy krokami 30 min).
+        public float LostAt(int station, float t)
+        {
+            if (!HasLost) return 0;
+            var l = Day.lost;
+            float s = t / l.stepSec;
+            int k = Mathf.Clamp(Mathf.FloorToInt(s), 0, l.steps - 1);
+            float prev = k > 0 ? l.cum[station * l.steps + k - 1] : 0f;
+            return Mathf.Lerp(prev, l.cum[station * l.steps + k], Mathf.Clamp01(s - k));
+        }
+
+        public float TotalLostAt(float t)
+        {
+            if (!HasLost) return 0;
+            float sum = 0;
+            for (int i = 0; i < Stations.Length; i++) sum += LostAt(i, t);
+            return sum;
+        }
+
+        /// Szacowany popyt stacji o tej godzinie [wypozyczenia / h przy dostepnych rowerach].
+        public float RateAt(int station, float t)
+        {
+            if (Day?.lost?.rate == null || Day.lost.rate.Length == 0) return 0;
+            int h = Mathf.Clamp(Mathf.FloorToInt(LocalHour(t)), 0, 23);
+            return Day.lost.rate[station * 24 + h];
+        }
 
         /// Korki na korytarzu w chwili t (ostatni znany pomiar do 1 h wstecz); -1 = brak danych.
         public float CongestionAt(Corridor c, float t)

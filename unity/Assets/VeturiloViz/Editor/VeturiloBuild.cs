@@ -63,7 +63,7 @@ namespace Veturilo.Viz.Editor
         public static void EnsureMaterials()
         {
             Directory.CreateDirectory(MaterialsDir);
-            Make("Lit", "Standard", null);
+            Make("Lit", "Standard", m => m.enableInstancing = true);
             Make("Facade", "Standard", m =>
             {
                 m.EnableKeyword("_EMISSION");
@@ -73,13 +73,20 @@ namespace Veturilo.Viz.Editor
             Make("Unlit", "Unlit/Color", null);
             Make("Vertex", "Sprites/Default", null);
             Make("Glow", "Legacy Shaders/Particles/Additive", null);
+            Make("DayTrails", "Veturilo/DayTrails", null);
             AssetDatabase.SaveAssets();
         }
 
         static void Make(string name, string shader, System.Action<Material> setup)
         {
             string path = $"{MaterialsDir}/{name}.mat";
-            if (AssetDatabase.LoadAssetAtPath<Material>(path) != null) return;
+            var existing = AssetDatabase.LoadAssetAtPath<Material>(path);
+            if (existing != null)
+            {
+                setup?.Invoke(existing);
+                EditorUtility.SetDirty(existing);
+                return;
+            }
             var s = Shader.Find(shader);
             if (s == null) { Debug.LogWarning("Veturilo: brak shadera " + shader); return; }
             var m = new Material(s);

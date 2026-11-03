@@ -78,6 +78,15 @@ namespace Veturilo.Viz
             return m;
         }
 
+        /// Slady calego dnia: linie rozszerzane w shaderze (staly rozmiar na ekranie), widoczne od chwili przejazdu.
+        public static Material DayTrails()
+        {
+            var t = Resources.Load<Material>("VeturiloMaterials/DayTrails");
+            if (t != null) return new Material(t);
+            var s = Shader.Find("Veturilo/DayTrails");
+            return s != null ? new Material(s) : Vertex(Color.white);
+        }
+
         /// Addytywna poswiata (rowery, swiatla, gwiazdy) - tekstura miekkiego kola.
         public static Material Glow()
         {
@@ -175,9 +184,10 @@ namespace Veturilo.Viz
         // ------------------------------------------------------------- paleta
 
         public static readonly Color Background = new Color(0.06f, 0.07f, 0.09f);
-        public static readonly Color Ground = new Color(0.13f, 0.14f, 0.16f);
+        public static readonly Color Ground = new Color(0.17f, 0.175f, 0.19f);
         public static readonly Color Water = new Color(0.10f, 0.20f, 0.32f);
-        public static readonly Color Green = new Color(0.14f, 0.24f, 0.16f);
+        public static readonly Color Green = new Color(0.20f, 0.32f, 0.18f);
+        public static readonly Color Forest = new Color(0.12f, 0.22f, 0.12f);
         public static readonly Color Cycleway = new Color(0.20f, 0.85f, 0.55f, 0.55f);
         public static readonly Color Bike = new Color(1.00f, 0.80f, 0.20f);
         public static readonly Color EBike = new Color(0.30f, 0.85f, 1.00f);
@@ -185,15 +195,16 @@ namespace Veturilo.Viz
         public static readonly Color Empty = new Color(0.95f, 0.20f, 0.25f);
         public static readonly Color Low = new Color(1.00f, 0.62f, 0.15f);
         public static readonly Color Ok = new Color(0.25f, 0.85f, 0.45f);
-        public static readonly Color Full = new Color(0.30f, 0.55f, 1.00f);
-        public static readonly Color Overfull = new Color(0.70f, 0.40f, 1.00f);
+        public static readonly Color Full = new Color(0.35f, 0.62f, 0.95f);
+        public static readonly Color Overfull = new Color(0.78f, 0.38f, 1.00f);
         public static readonly Color NoData = new Color(0.40f, 0.40f, 0.42f);
         public static readonly Color Losing = new Color(1.00f, 0.33f, 0.30f);    // stacja traci rowery
         public static readonly Color Gaining = new Color(0.25f, 0.75f, 1.00f);   // stacja zyskuje rowery
         public static readonly Color Neutral = new Color(0.55f, 0.57f, 0.62f);
         public static readonly Color Event = new Color(1.00f, 0.85f, 0.35f);
 
-        /// Kolor stacji wg zapelnienia (rowery / pojemnosc).
+        /// Kolor stacji wg zapelnienia (rowery / pojemnosc). Na Veturilo 3.0 zostawianie rowerow ponad stojaki
+        /// jest normalne, wiec do 150% stacja jest po prostu "pelna"; fiolet dopiero przy mocnym przepelnieniu.
         public static Color StationColor(float bikes, int cap)
         {
             if (bikes < 0) return NoData;
@@ -202,7 +213,8 @@ namespace Veturilo.Viz
             if (fill < 0.25f) return Color.Lerp(Empty, Low, fill / 0.25f);
             if (fill < 0.5f) return Color.Lerp(Low, Ok, (fill - 0.25f) / 0.25f);
             if (fill <= 1f) return Color.Lerp(Ok, Full, (fill - 0.5f) / 0.5f);
-            return Color.Lerp(Full, Overfull, Mathf.Clamp01((fill - 1f) / 1f));
+            if (fill <= 1.5f) return Full;
+            return Color.Lerp(Full, Overfull, Mathf.Clamp01((fill - 1.5f) / 0.5f));
         }
 
         /// Kolor bilansu: ujemny (wiecej wypozyczen) czerwony, dodatni (wiecej zwrotow) niebieski.
