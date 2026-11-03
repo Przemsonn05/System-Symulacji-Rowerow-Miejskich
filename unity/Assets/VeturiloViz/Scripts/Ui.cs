@@ -11,7 +11,7 @@ namespace Veturilo.Viz
 {
     public static class Ui
     {
-        public static readonly Color PanelBg = new Color(0.05f, 0.06f, 0.08f, 0.82f);
+        public static readonly Color PanelBg = new Color(0.04f, 0.05f, 0.07f, 0.84f);
         public static readonly Color Accent = new Color(1.00f, 0.80f, 0.20f);
         public static readonly Color TextMain = new Color(0.94f, 0.95f, 0.97f);
         public static readonly Color TextDim = new Color(0.62f, 0.66f, 0.72f);
@@ -73,12 +73,20 @@ namespace Veturilo.Viz
             return r;
         }
 
+        /// Panel z tlem i cienkim paskiem akcentu u gory.
         public static RectTransform Panel(string name, Transform parent, Vector2 anchor, Vector2 pos, Vector2 size,
-                                          Color? bg = null)
+                                          Color? bg = null, bool accent = true)
         {
             var r = Rect(name, parent, anchor, anchor, anchor, pos, size);
             var img = r.gameObject.AddComponent<Image>();
             img.color = bg ?? PanelBg;
+            if (accent)
+            {
+                var strip = Rect("Accent", r, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0.5f, 1), Vector2.zero, new Vector2(0, 3));
+                var si = strip.gameObject.AddComponent<Image>();
+                si.color = new Color(Accent.r, Accent.g, Accent.b, 0.85f);
+                si.raycastTarget = false;
+            }
             return r;
         }
 
@@ -93,14 +101,24 @@ namespace Veturilo.Viz
             t.alignment = align;
             t.color = color ?? TextMain;
             t.text = text;
+            t.supportRichText = true;
             t.horizontalOverflow = HorizontalWrapMode.Wrap;
             t.verticalOverflow = VerticalWrapMode.Overflow;
             t.raycastTarget = false;
             return t;
         }
 
+        public static Image Swatch(Transform parent, Color c, Vector2 pos, Vector2 size)
+        {
+            var r = Rect("Swatch", parent, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), pos, size);
+            var img = r.gameObject.AddComponent<Image>();
+            img.color = c;
+            img.raycastTarget = false;
+            return img;
+        }
+
         public static Button Button(Transform parent, string text, Vector2 pos, Vector2 size, Action onClick,
-                                    int fontSize = 18)
+                                    int fontSize = 18, TextAnchor align = TextAnchor.MiddleCenter)
         {
             var r = Rect("Button_" + text, parent, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), pos, size);
             var img = r.gameObject.AddComponent<Image>();
@@ -111,10 +129,11 @@ namespace Veturilo.Viz
             colors.pressedColor = new Color(0.8f, 0.8f, 0.8f);
             b.colors = colors;
             b.onClick.AddListener(() => onClick());
-            var t = Label(r, text, fontSize, Vector2.zero, size, TextAnchor.MiddleCenter);
+            var t = Label(r, text, fontSize, Vector2.zero, size, align);
             t.rectTransform.anchorMin = Vector2.zero; t.rectTransform.anchorMax = Vector2.one;
             t.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-            t.rectTransform.anchoredPosition = Vector2.zero; t.rectTransform.sizeDelta = Vector2.zero;
+            t.rectTransform.anchoredPosition = Vector2.zero;
+            t.rectTransform.sizeDelta = align == TextAnchor.MiddleCenter ? Vector2.zero : new Vector2(-16, 0);
             return b;
         }
 
@@ -123,6 +142,12 @@ namespace Veturilo.Viz
             b.GetComponent<Image>().color = on ? ButtonOn : ButtonBg;
             var t = b.GetComponentInChildren<Text>();
             if (t) t.color = on ? Color.black : TextMain;
+        }
+
+        public static void SetText(Button b, string text)
+        {
+            var t = b.GetComponentInChildren<Text>();
+            if (t) t.text = text;
         }
 
         public static Slider Slider(Transform parent, Vector2 pos, Vector2 size, Action<float> onChange)
@@ -146,20 +171,26 @@ namespace Veturilo.Viz
         }
     }
 
-    /// Prosty wykres slupkowy z podswietlonym biezacym slupkiem.
+    /// Prosty wykres slupkowy: podswietlony biezacy slupek, przyszlosc przyciemniona.
     public class BarChart
     {
         readonly Image[] bars;
         readonly RectTransform area;
-        readonly Color normal, highlight;
+        readonly Color[] colors;
+        readonly Color highlight;
         float[] values = new float[0];
 
-        public BarChart(Transform parent, Vector2 pos, Vector2 size, int n, Color normal, Color highlight)
+        public RectTransform Area => area;
+
+        public BarChart(Transform parent, Vector2 pos, Vector2 size, int n, Color normal, Color highlight, bool background = true)
         {
-            this.normal = normal; this.highlight = highlight;
+            this.highlight = highlight;
             area = Ui.Rect("Chart", parent, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), pos, size);
-            area.gameObject.AddComponent<Image>().color = new Color(1, 1, 1, 0.04f);
+            var bg = area.gameObject.AddComponent<Image>();
+            bg.color = background ? new Color(1, 1, 1, 0.04f) : new Color(0, 0, 0, 0);
+            bg.raycastTarget = false;
             bars = new Image[n];
+            colors = new Color[n];
             float w = size.x / n;
             for (int i = 0; i < n; i++)
             {
@@ -167,7 +198,14 @@ namespace Veturilo.Viz
                 bars[i] = r.gameObject.AddComponent<Image>();
                 bars[i].color = normal;
                 bars[i].raycastTarget = false;
+                colors[i] = normal;
             }
+        }
+
+        /// Wlasne kolory slupkow (np. na przemian wypozyczenia / zwroty).
+        public void SetColors(Func<int, Color> color)
+        {
+            for (int i = 0; i < bars.Length; i++) { colors[i] = color(i); bars[i].color = colors[i]; }
         }
 
         public void SetValues(float[] v, float max = -1)
@@ -178,16 +216,17 @@ namespace Veturilo.Viz
             for (int i = 0; i < bars.Length; i++)
             {
                 float val = i < v.Length ? Mathf.Max(v[i], 0) : 0;
-                bars[i].rectTransform.sizeDelta = new Vector2(bars[i].rectTransform.sizeDelta.x, h * val / max);
+                bars[i].rectTransform.sizeDelta = new Vector2(bars[i].rectTransform.sizeDelta.x, h * Mathf.Min(val / max, 1f));
             }
         }
 
-        public void SetHighlight(int idx, int upTo = -1)
+        /// idx - slupek biezacy (jasniejszy); upTo - slupki dalej sa przyciemnione (przyszlosc).
+        public void SetHighlight(int idx, int upTo = -1, int idx2 = -1)
         {
             for (int i = 0; i < bars.Length; i++)
             {
-                var c = i == idx ? highlight : normal;
-                if (upTo >= 0 && i > upTo) c.a *= 0.35f;
+                var c = i == idx || i == idx2 ? Color.Lerp(colors[i], highlight, 0.6f) : colors[i];
+                if (upTo >= 0 && i > upTo) c.a *= 0.3f;
                 bars[i].color = c;
             }
         }

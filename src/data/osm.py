@@ -5,6 +5,7 @@ Pliki:
   pois.parquet                    punkty POI: category, name, osmid, lat, lon
   cycleways.parquet               drogi rowerowe (GeoParquet, EPSG:4326)
   buildings_srodmiescie.parquet   budynki Srodmiescia z wysokoscia (GeoParquet)
+  basemap.parquet                 podklad mapy dla wizualizacji: woda, zielen, glowne ulice, tory
   graph_bike.graphml, graph_drive.graphml   grafy drog (z wycinka BBBike, nie z Overpass)
 Odpowiedzi Overpass sa cache'owane w osm/cache (OSMnx), wiec ponowne
 uruchomienie nie pobiera ich drugi raz.
@@ -283,6 +284,94 @@ def fetch_graphs(ox, polygon, log):
     shutil.rmtree(tmp, ignore_errors=True)
 
 
+# Podklad mapy do wizualizacji 3D: woda, zielen, glowne ulice, tory. Z tego samego wycinka
+# BBBike co grafy (osmium, bez Overpass), przyciety do prostokata BBOX.
+BASEMAP_ROADS = {"motorway": 0, "trunk": 0, "primary": 1, "secondary": 2, "tertiary": 3}
+BASEMAP_GREEN = {
+    "leisure": {"park", "garden", "recreation_ground", "golf_course"},
+    "landuse": {"forest", "grass", "meadow", "recreation_ground", "cemetery", "allotments", "village_green"},
+    "natural": {"wood", "scrub", "heath"},
+}
+BASEMAP_MIN_AREA = {"water": 3000, "green": 8000}
+
+
+def _basemap_kind(tags):
+    if tags.get("natural") == "water" or tags.get("waterway") == "riverbank" or tags.get("landuse") in ("reservoir", "basin"):
+        return "water"
+    for key, values in BASEMAP_GREEN.items():
+        if tags.get(key) in values:
+            return "green"
+    return None
+
+
+def fetch_basemap(log, force=False):
+    path = OSM_DIR / "basemap.parquet"
+    if path.exists() and not force:
+        log(f"  OSM podklad mapy: juz jest ({path.name})")
+        return
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    import geopandas as gpd
+    import osmium
+    from shapely import wkb
+    from shapely.geometry import box
+
+    from .config import BBOX
+
+    tmp = Path(tempfile.mkdtemp(prefix="veturilo_osm_"))
+    pbf = tmp / "warsaw.osm.pbf"
+    shutil.copy(_download_pbf(log), pbf)
+    factory = osmium.geom.WKBFactory()
+    rows = []
+
+    areas = (osmium.FileProcessor(str(pbf))
+             .with_areas(osmium.filter.KeyFilter("natural", "waterway", "landuse", "leisure"))
+             .with_filter(osmium.filter.EntityFilter(osmium.osm.AREA)))
+    for area in areas:
+        kind = _basemap_kind(area.tags)
+        if kind is None:
+            continue
+        try:
+            rows.append((kind, -1, wkb.loads(factory.create_multipolygon(area), hex=True)))
+        except Exception:
+            continue
+
+    ways = (osmium.FileProcessor(str(pbf), osmium.osm.NODE | osmium.osm.WAY)
+            .with_locations()
+            .with_filter(osmium.filter.EntityFilter(osmium.osm.WAY))
+            .with_filter(osmium.filter.KeyFilter("highway", "railway")))
+    for way in ways:
+        hw, rw = way.tags.get("highway"), way.tags.get("railway")
+        if hw in BASEMAP_ROADS:
+            kind, cls = "road", BASEMAP_ROADS[hw]
+        elif rw == "rail" and way.tags.get("service") is None:
+            kind, cls = "rail", -1
+        else:
+            continue
+        try:
+            rows.append((kind, cls, wkb.loads(factory.create_linestring(way), hex=True)))
+        except Exception:
+            continue
+    shutil.rmtree(tmp, ignore_errors=True)
+
+    gdf = gpd.GeoDataFrame(rows, columns=["kind", "cls", "geometry"], crs="EPSG:4326")
+    gdf = gdf.clip(box(BBOX["lon_min"], BBOX["lat_min"], BBOX["lon_max"], BBOX["lat_max"]))
+    gdf = gdf[~gdf.geometry.is_empty]
+    area = gdf.geometry.to_crs("EPSG:2180").area
+    keep = pd.Series(True, index=gdf.index)
+    for kind, min_area in BASEMAP_MIN_AREA.items():
+        keep &= ~((gdf["kind"] == kind) & (area < min_area))
+    gdf = gdf[keep].copy()
+    # ok. 2 m - wystarcza do mapy, a plik jest kilka razy mniejszy
+    gdf["geometry"] = gdf.geometry.simplify(0.00002)
+    out = pd.DataFrame({"kind": gdf["kind"].values, "cls": gdf["cls"].astype(int).values,
+                        "geometry": gdf.geometry.to_wkb().values})
+    out.to_parquet(path, index=False)
+    log(f"  OSM podklad mapy: {out['kind'].value_counts().to_dict()} -> {path.name}")
+
+
 def fetch_all(log, force_graphs=False):
     from .config import STATIC
 
@@ -296,6 +385,7 @@ def fetch_all(log, force_graphs=False):
     fetch_pois(ox, polygon, log)
     fetch_cycleways(ox, polygon, log)
     fetch_buildings(ox, log)
+    fetch_basemap(log)
     # Grafy sluza tylko do macierzy odleglosci miedzy stacjami, ktora jest w repo -
     # budujemy je (pobranie ~120 MB) tylko, gdy jej brak albo na zadanie (--force osm).
     if (STATIC / "station_network_distance.parquet").exists() and not force_graphs:

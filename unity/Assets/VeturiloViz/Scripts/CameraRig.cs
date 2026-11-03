@@ -46,7 +46,7 @@ namespace Veturilo.Viz
                 tDistance = 6500f + 2500f * Mathf.Sin(Time.unscaledTime * 0.035f);
                 tTarget = Vector3.Lerp(tTarget, Vector3.zero, dt * 0.2f);
             }
-            float k = 1f - Mathf.Exp(-dt * 8f);
+            float k = 1f - Mathf.Exp(-dt * Smoothing);
             target = Vector3.Lerp(target, tTarget, k);
             yaw = Mathf.LerpAngle(yaw, tYaw, k);
             pitch = Mathf.Lerp(pitch, tPitch, k);
@@ -59,7 +59,12 @@ namespace Veturilo.Viz
             var rot = Quaternion.Euler(pitch, yaw, 0);
             transform.position = target - rot * Vector3.forward * distance;
             transform.rotation = rot;
-            if (cam) cam.farClipPlane = Mathf.Max(60000f, distance * 6f);
+            if (cam)
+            {
+                cam.farClipPlane = Mathf.Max(60000f, distance * 6f);
+                // bliska plaszczyzna rosnie z odlegloscia - bez tego plaskie warstwy (woda, ulice) migotalyby z daleka
+                cam.nearClipPlane = Mathf.Clamp(distance * 0.015f, 2f, 250f);
+            }
         }
 
         void HandleInput(float dt)
@@ -127,5 +132,8 @@ namespace Veturilo.Viz
             tPitch = Mathf.Clamp(tPitch, 35f, 60f);
             cinematic = false;
         }
+
+        /// Plynny przelot (pokaz): wolniejszy niz zwykle podazanie, do czasu nastepnego Preset.
+        public float Smoothing { get; set; } = 8f;
     }
 }

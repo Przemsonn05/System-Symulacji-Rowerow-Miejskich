@@ -7,10 +7,12 @@
 Wynik (domyslnie unity/Assets/StreamingAssets/veturilo/):
   index.json            lista dni + metadane (zrodlo danych, poczatek ukladu wspolrzednych)
   city.json             budynki Srodmiescia (obrys + wysokosc), drogi rowerowe, wybrane POI
-  stations.json         stacje: pozycja, pojemnosc, statystyki
+  basemap.json          podklad: granica miasta, Wisla i woda, zielen, glowne ulice, tory, mieszkancy (heksagony)
+  stations.json         stacje: pozycja, pojemnosc, statystyki, cechy otoczenia
   routes.json           trasy stacja -> stacja (po grafie rowerowym, jesli jest; inaczej prosto)
   truck_routes.json     trasy relokacji (po grafie drogowym, jesli jest; inaczej prosto)
-  day_RRRR-MM-DD.json   jeden dzien: stan stacji co 5 min, przejazdy, relokacje, pogoda, KPI
+  day_RRRR-MM-DD.json   jeden dzien: stan stacji co 5 min, przejazdy, relokacje, pogoda, KPI,
+                        korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami
 
 Wspolrzedne: metry w ukladzie lokalnym, poczatek = Palac Kultury (x = wschod, z = polnoc).
 Czasy w dniu: sekundy od lokalnej polnocy (Europe/Warsaw), dzien 25.10 ma 25 h.
@@ -28,10 +30,27 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from src.data.config import CENTER_LAT, CENTER_LON, OSM_DIR, PROCESSED, ROOT, TZ
+from src.data.config import BBOX, CENTER_LAT, CENTER_LON, DATA, OSM_DIR, PROCESSED, ROOT, STATIC, TZ
+from src.data.context import TOMTOM_CORRIDORS
+from src.data.raw import iter_jsonl
 
 DEFAULT_OUT = ROOT / "unity" / "Assets" / "StreamingAssets" / "veturilo"
 SLOT_SEC = 300
+STEP_SEC = 1800  # krok danych TomTom (pomiar co 30 min)
+CORRIDOR_LABELS = {
+    "jerozolimskie": "Al. Jerozolimskie",
+    "marszalkowska_pl_konstytucji": "Marszałkowska",
+    "niepodleglosci_pole_mokotowskie": "al. Niepodległości",
+    "pulawska_mokotow": "Puławska",
+    "wislostrada_centrum": "Wisłostrada",
+    "trasa_lazienkowska": "Trasa Łazienkowska",
+    "solidarnosci_wola": "al. Solidarności",
+    "prymasa_tysiaclecia": "Prymasa Tysiąclecia",
+    "grochowska": "Grochowska",
+    "modlinska_bialoleka": "Modlińska",
+}
+# kategorie TomTom pokazywane na mapie: 1 wypadek, 6 korek, 7 zamkniety pas, 8 zamknieta droga, 9 roboty
+INCIDENT_CATS = {1, 6, 7, 8, 9}
 M_PER_DEG_LAT = 110_574.0
 M_PER_DEG_LON = 111_320.0 * math.cos(math.radians(CENTER_LAT))
 POI_EXPORT = ["metro", "train_station", "university", "mall", "attraction"]
@@ -136,6 +155,185 @@ def export_city(out):
     log(f"  miasto: {len(city['buildings'])} budynkow, {len(city['cycleways'])} odcinkow drog rowerowych, "
         f"{len(city['pois'])} POI")
     write_json(out / "city.json", city)
+
+
+def _to_metric(geom):
+    import shapely
+
+    return shapely.transform(geom, lambda c: np.column_stack(to_xz(c[:, 1], c[:, 0])))
+
+
+def _mesh(polys, tol):
+    """Wielokaty (metry) -> jedna siatka trojkatow {v: [x,z,...], t: [i,...]} (triangulacja z ograniczeniami)."""
+    import shapely
+
+    verts, tris, index = [], [], {}
+    for poly in polys:
+        poly = poly.simplify(tol)
+        if poly.is_empty:
+            continue
+        for tri in shapely.get_parts(shapely.constrained_delaunay_triangles(poly)):
+            ids = []
+            for x, z in list(tri.exterior.coords)[:3]:
+                key = (int(round(x)), int(round(z)))
+                if key not in index:
+                    index[key] = len(index)
+                    verts.extend(key)
+                ids.append(index[key])
+            if len(set(ids)) == 3:
+                tris.extend(ids)
+    return {"v": verts, "t": tris}
+
+
+def export_basemap(out):
+    """Podklad mapy: granica Warszawy, woda, zielen, glowne ulice, tory, mieszkancy w heksagonach H3."""
+    import shapely
+    from shapely import wkb
+
+    bm = {"boundary": [], "water": {"v": [], "t": []}, "green": {"v": [], "t": []},
+          "roads": [], "rail": [], "population": []}
+
+    bpath = OSM_DIR / "boundary.geojson"
+    if bpath.exists():
+        import geopandas as gpd
+
+        geom = _to_metric(gpd.read_file(bpath).geometry.iloc[0])
+        for p in shapely.get_parts(geom):
+            cc = np.asarray(p.exterior.simplify(15).coords)
+            bm["boundary"].append({"p": flat_ints(cc[:, 0], cc[:, 1])})
+
+    path = OSM_DIR / "basemap.parquet"
+    if path.exists():
+        b = pd.read_parquet(path)
+        geoms = [_to_metric(wkb.loads(g)) for g in b["geometry"]]
+        for kind in ("water", "green"):
+            polys = [p for g, k in zip(geoms, b["kind"]) if k == kind
+                     for p in shapely.get_parts(g) if p.geom_type == "Polygon"]
+            bm[kind] = _mesh(polys, 3.0)
+        for g, kind, cls in zip(geoms, b["kind"], b["cls"]):
+            if kind not in ("road", "rail"):
+                continue
+            for line in shapely.get_parts(g):
+                cc = np.asarray(line.simplify(4.0).coords)
+                if len(cc) >= 2:
+                    item = {"p": flat_ints(cc[:, 0], cc[:, 1])}
+                    if kind == "road":
+                        item["k"] = int(cls)
+                    bm["roads" if kind == "road" else "rail"].append(item)
+    else:
+        log("  brak basemap.parquet - bez Wisly, zieleni i ulic (uruchom fetch_static --only osm)")
+
+    ppath = STATIC / "population_h3.parquet"
+    if ppath.exists():
+        p = pd.read_parquet(ppath)
+        x, z = to_xz(p["lat"], p["lon"])
+        bm["population"] = [{"x": int(round(xi)), "z": int(round(zi)), "pop": int(v)}
+                            for xi, zi, v in zip(x, z, p["population"].fillna(0))]
+
+    log(f"  podklad: woda {len(bm['water']['t']) // 3} trojkatow, zielen {len(bm['green']['t']) // 3}, "
+        f"{len(bm['roads'])} odcinkow ulic, {len(bm['rail'])} torow, {len(bm['population'])} heksagonow")
+    write_json(out / "basemap.json", bm)
+
+
+# ---------------------------------------------------------------------------
+# Kontekst dnia: korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami
+# ---------------------------------------------------------------------------
+
+
+def _day_records(folder, a, b):
+    """Rekordy z plikow dziennych (UTC) obejmujacych przedzial [a, b)."""
+    rows = []
+    for d in pd.date_range(a.floor("D"), b.floor("D"), freq="D"):
+        path = DATA / folder / f"{d.date().isoformat()}.jsonl.gz"
+        if path.exists():
+            rows.extend(iter_jsonl(path))
+    df = pd.DataFrame(rows)
+    if df.empty or "fetched_at" not in df:
+        return pd.DataFrame()
+    df["time"] = pd.to_datetime(df["fetched_at"], utc=True)
+    return df[(df["time"] >= a) & (df["time"] < b)]
+
+
+def in_bbox(lat, lon):
+    return ((lat >= BBOX["lat_min"]) & (lat <= BBOX["lat_max"]) & (lon >= BBOX["lon_min"])
+            & (lon <= BBOX["lon_max"]))
+
+
+def day_traffic(a, b, n_steps):
+    """Korytarze TomTom: polozenie odcinka i wskaznik korkow (1 - predkosc/swobodna) co 30 min; -1 = brak."""
+    flow = _day_records("traffic_flow", a, b)
+    if flow.empty:
+        return {"stepSec": STEP_SEC, "corridors": []}
+    flow = flow[flow["free_flow_speed"] > 0].copy()
+    flow["corridor"] = flow["point"].map(TOMTOM_CORRIDORS).fillna(flow["point"])
+    flow["congestion"] = (1 - flow["current_speed"] / flow["free_flow_speed"]).clip(lower=0)
+    flow["step"] = ((flow["time"] - a).dt.total_seconds() // STEP_SEC).astype(int)
+    corridors = []
+    for corr, g in flow.groupby("corridor"):
+        last = g.sort_values("time").iloc[-1]  # aktualny punkt pomiaru (po przeniesieniu 26.10)
+        lat = (last["seg_start"][0] + last["seg_end"][0]) / 2
+        lon = (last["seg_start"][1] + last["seg_end"][1]) / 2
+        x, z = to_xz([lat], [lon])
+        cong = g.groupby("step")["congestion"].mean().reindex(range(n_steps))
+        corridors.append({
+            "name": corr, "label": CORRIDOR_LABELS.get(corr, corr),
+            "x": round(float(x[0]), 1), "z": round(float(z[0]), 1),
+            "cong": [round(float(v), 3) if pd.notna(v) else -1 for v in cong],
+        })
+    return {"stepSec": STEP_SEC, "corridors": corridors}
+
+
+def day_incidents(a, b):
+    """Utrudnienia TomTom: jeden pomiar na kazde 30 min (krok), tylko wybrane kategorie."""
+    inc = _day_records("incidents", a, b)
+    out = {"stepSec": STEP_SEC, "step": [], "x": [], "z": [], "cat": [], "mag": []}
+    if inc.empty or "incident_id" not in inc:
+        return out
+    inc = inc[inc["incident_id"].notna() & inc["icon_category"].isin(INCIDENT_CATS) & inc["lat"].notna()]
+    inc = inc[in_bbox(inc["lat"], inc["lon"])].copy()
+    inc["step"] = ((inc["time"] - a).dt.total_seconds() // STEP_SEC).astype(int)
+    # pierwszy pomiar w kazdym kroku
+    first = inc.groupby("step")["time"].transform("min")
+    inc = inc[inc["time"] == first].drop_duplicates(["step", "incident_id"])
+    x, z = to_xz(inc["lat"], inc["lon"])
+    out.update(step=inc["step"].astype(int).tolist(), x=np.round(x).astype(int).tolist(),
+               z=np.round(z).astype(int).tolist(), cat=inc["icon_category"].astype(int).tolist(),
+               mag=inc["magnitude"].fillna(0).astype(int).tolist())
+    return out
+
+
+def day_loose(a, b):
+    """Rowery zostawione poza stacjami w Warszawie: numer pomiaru (5 min), pozycja, czy e-rower."""
+    lo = _day_records("loose", a, b)
+    out = {"slot": [], "x": [], "z": [], "e": []}
+    if lo.empty or "bike_number" not in lo:
+        return out
+    lo = lo[lo["bike_number"].notna() & lo["lat"].notna()]
+    lo = lo[in_bbox(lo["lat"], lo["lon"])]
+    slot = ((lo["time"] - a).dt.total_seconds() / SLOT_SEC).round().astype(int)
+    x, z = to_xz(lo["lat"], lo["lon"])
+    battery = lo["battery"] if "battery" in lo else pd.Series(np.nan, index=lo.index)
+    out.update(slot=slot.tolist(), x=np.round(x).astype(int).tolist(), z=np.round(z).astype(int).tolist(),
+               e=battery.notna().astype(int).tolist())
+    return out
+
+
+def day_events(a, b):
+    """Wydarzenia z events.csv trwajace w tym dniu (czas w sekundach od lokalnej polnocy)."""
+    path = STATIC / "events.csv"
+    if not path.exists():
+        return []
+    ev = pd.read_csv(path)
+    ev["start"] = pd.to_datetime(ev["start_utc"], utc=True)
+    ev["end"] = pd.to_datetime(ev["end_utc"], utc=True)
+    ev = ev[(ev["end"] > a) & (ev["start"] < b) & ev["lat"].notna()]
+    x, z = to_xz(ev["lat"], ev["lon"])
+    return [{
+        "name": str(r["name"]), "venue": str(r["venue"]), "category": str(r["category"]),
+        "x": round(float(xi), 1), "z": round(float(zi), 1),
+        "start": int((r["start"] - a).total_seconds()), "end": int((r["end"] - a).total_seconds()),
+        "large": int(r["scale"] == "large"),
+    } for (_, r), xi, zi in zip(ev.iterrows(), x, z)]
 
 
 # ---------------------------------------------------------------------------
@@ -313,14 +511,22 @@ def export(out, days_wanted=None, source="observed"):
             "shareOverfull": round(float(col("share_overfull")[i]), 3),
             "meanBikes": round(float(col("mean_bikes")[i]), 1),
             "nRestaurants": int(col("n_restaurant_300m")[i]),
+            "nBars": int(col("n_bar_300m")[i]),
+            "nCafes": int(col("n_cafe_300m")[i]),
             "nOffices": int(col("n_office_300m")[i]),
             "nUniversities": int(col("n_university_300m")[i]),
+            "nSchools": int(col("n_school_300m")[i]),
             "distMetro": int(col("dist_metro_m", -1)[i]),
+            "distCenter": int(col("dist_center_m", -1)[i]),
+            "population": int(col("population_500m")[i]),
+            "transitDepartures": int(col("departures_total_300m")[i]),
+            "cyclewayM": int(col("cycleway_m_300m")[i]),
             "elevation": round(float(col("elevation_m")[i]), 1),
         })
     write_json(out / "stations.json", {"stations": stations})
 
     export_city(out)
+    export_basemap(out)
 
     # --- dni
     days = local_days(ot["time"])
@@ -330,6 +536,8 @@ def export(out, days_wanted=None, source="observed"):
     trips_u = trips[
         (trips["type"] == "user") & ~trips["is_flicker"] & ~trips["too_fast"] & ~trips["is_long"]
         & ~trips["same_station"]
+        # stacja bez polozenia w danych (np. nowa, jeszcze bez wpisu w info) - nie da sie narysowac
+        & trips[["from_lat", "from_lon", "to_lat", "to_lon"]].notna().all(axis=1)
     ].copy()
     st_pairs = trips_u[(trips_u["from_type"] == "station") & (trips_u["to_type"] == "station")
                        & trips_u["from_station"].isin(sidx) & trips_u["to_station"].isin(sidx)]
@@ -373,8 +581,9 @@ def export(out, days_wanted=None, source="observed"):
         kpi_over = ((bv > cap) & known).sum(axis=1)
         kpi_at = np.where(known, bv, 0).sum(axis=1)
         kpi_known = known.any(axis=1)
-        fl = fleet.set_index("time")["in_use"]
-        fl = fl[~fl.index.duplicated()].reindex(fl.index.union(slots)).sort_index().ffill(limit=2).reindex(slots)
+        fleet_slots = fleet.drop_duplicates("time").set_index("time")
+        fleet_slots = fleet_slots.reindex(fleet_slots.index.union(slots)).sort_index().ffill(limit=2).reindex(slots)
+        fl = fleet_slots["in_use"]
 
         # przejazdy uzytkownikow tego dnia (wg chwili wyjazdu)
         t = trips_u[(trips_u["t_departure"] >= a) & (trips_u["t_departure"] < b)].sort_values("t_departure")
@@ -440,9 +649,16 @@ def export(out, days_wanted=None, source="observed"):
                 "overfull": kpi_over.astype(int).tolist(),
                 "atStations": kpi_at.astype(int).tolist(),
                 "inUse": fl.fillna(-1).astype(int).tolist(),
+                "awayLong": fleet_slots["away_long"].fillna(-1).astype(int).tolist(),
+                "looseWarsaw": fleet_slots["loose_warsaw"].fillna(-1).astype(int).tolist(),
+                "fleetTarget": int(fleet["set_point_bikes"].dropna().iloc[-1]) if fleet["set_point_bikes"].notna().any() else 0,
                 "known": kpi_known.astype(int).tolist(),
                 "tripsPerHour": trips_per_hour.astype(int).tolist(),
             },
+            "eventList": day_events(a, b),
+            "traffic": day_traffic(a, b, math.ceil(length / STEP_SEC)),
+            "incidents": day_incidents(a, b),
+            "loose": day_loose(a, b),
             "trips": {
                 "dep": dep.tolist(), "arr": arr.tolist(), "route": rix,
                 "ebike": t["is_ebike"].fillna(False).astype(int).tolist(),
@@ -461,6 +677,8 @@ def export(out, days_wanted=None, source="observed"):
                 "precip": carr("precipitation", 0.0, 2),
                 "cloud": carr("cloud_cover", 50.0, 0),
                 "wind": carr("wind_speed_10m", 0.0, 1),
+                "apparentTemp": carr("apparent_temperature", 10.0, 1),
+                "humidity": carr("relative_humidity_2m", 70.0, 0),
                 "sunElevation": carr("sun_elevation", 0.0, 1),
                 "weatherCode": [int(v) for v in carr("weather_code", 0, 0)],
                 "congestion": carr("congestion", 0.0, 3),

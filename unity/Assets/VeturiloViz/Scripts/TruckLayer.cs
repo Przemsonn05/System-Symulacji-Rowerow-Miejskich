@@ -21,6 +21,8 @@ namespace Veturilo.Viz
         Mesh ringMesh;
         float lastT = -1;
         Camera cam;
+        ParticleSystem beacons;
+        ParticleSystem.Particle[] beaconBuf = new ParticleSystem.Particle[64];
 
         public int ActiveCount => active.Count;
         public int DoneCount { get; private set; }
@@ -34,8 +36,9 @@ namespace Veturilo.Viz
             cab = Mats.Lit(new Color(0.15f, 0.16f, 0.18f), 0.7f);
             stripe = Mats.Unlit(Mats.Truck);
             trailMat = Mats.Vertex(Color.white);
-            pulseMat = Mats.Vertex(Color.white);
+            pulseMat = CityBuilder.Queue(Mats.Vertex(Color.white), 3011);
             ringMesh = Ring();
+            beacons = Fx.GlowSystem(transform, "TruckBeacons", 256, 3101);
         }
 
         public void OnDayLoaded()
@@ -73,6 +76,10 @@ namespace Veturilo.Viz
             DoneCount = done; BikesMovedToday = moved;
 
             remove.Clear();
+            if (beaconBuf.Length < active.Count) beaconBuf = new ParticleSystem.Particle[active.Count * 2];
+            float camH = cam ? Mathf.Abs(cam.transform.position.y) : 3000f;
+            float blink = 0.55f + 0.45f * Mathf.Abs(Mathf.Sin(Time.unscaledTime * 5f));
+            int g = 0;
             foreach (var kv in active)
             {
                 int i = kv.Key;
@@ -80,7 +87,16 @@ namespace Veturilo.Viz
                 float f = Mathf.SmoothStep(0, 1, (t - tr.dep[i]) / Mathf.Max(tr.arr[i] - tr.dep[i], 1));
                 var p = route.Sample(f, out var dir);
                 var go = kv.Value.go;
-                go.transform.position = new Vector3(p.x, 0, p.y);
+                go.transform.position = new Vector3(p.x, 3.5f, p.y);
+                go.transform.localScale = Vector3.one * Mathf.Clamp(camH / 4000f, 0.35f, 1.3f);
+                // kogut: pomaranczowe swiatlo widoczne z daleka
+                var bc = Mats.Truck; bc.a = 0.8f * blink;
+                beaconBuf[g].position = go.transform.position + Vector3.up * 14f * scale;
+                beaconBuf[g].startSize = Mathf.Clamp(camH * 0.03f, 60f, 420f);
+                beaconBuf[g].startColor = bc;
+                beaconBuf[g].remainingLifetime = 1000f;
+                beaconBuf[g].startLifetime = 1000f;
+                g++;
                 if (dir.sqrMagnitude > 0.001f)
                     go.transform.rotation = Quaternion.Slerp(go.transform.rotation,
                         Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y)), 0.25f);
@@ -92,6 +108,7 @@ namespace Veturilo.Viz
                     lt.localScale = Vector3.one * Mathf.Clamp(Vector3.Distance(cam.transform.position, lt.position) * 0.03f, 2f, 600f);
                 }
             }
+            beacons.SetParticles(beaconBuf, g);
             lastT = t;
             UpdatePulses();
         }
@@ -109,7 +126,7 @@ namespace Veturilo.Viz
             if (tk == null) { tk = Create(); pool.Add(tk); }
             tk.label.text = "+" + data.Day.trucks.n[i];
             var r = RouteOf(i).Sample(0, out var dir);
-            tk.go.transform.position = new Vector3(r.x, 0, r.y);
+            tk.go.transform.position = new Vector3(r.x, 3.5f, r.y);
             if (dir.sqrMagnitude > 0.001f) tk.go.transform.rotation = Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y));
             tk.trail.Clear();
             tk.go.SetActive(true);
@@ -138,7 +155,7 @@ namespace Veturilo.Viz
             labelGo.GetComponent<MeshRenderer>().sharedMaterial = Ui.DefaultFont.material;
 
             var trail = root.AddComponent<TrailRenderer>();
-            trail.sharedMaterial = trailMat;
+            trail.sharedMaterial = CityBuilder.Queue(trailMat, 3021);
             trail.time = 1.2f;
             trail.widthMultiplier = 3f * s;
             trail.startColor = new Color(Mats.Truck.r, Mats.Truck.g, Mats.Truck.b, 0.8f);
@@ -177,7 +194,7 @@ namespace Veturilo.Viz
                 pulses.Add(p);
             }
             var s = data.Stations[station];
-            p.t.position = new Vector3(s.x, 3f, s.z);
+            p.t.position = new Vector3(s.x, 7f, s.z);
             p.start = Time.unscaledTime;
             p.t.gameObject.SetActive(true);
         }

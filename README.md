@@ -18,7 +18,7 @@ Gdy model będzie zgodny z rzeczywistością, możemy na nim sprawdzać rzeczy, 
 | Dane dodatkowe: pogoda, kalendarz, wydarzenia, mapa miasta, mieszkańcy, komunikacja | ✅ pobrane, są w repozytorium |
 | Przetworzenie danych: odtworzenie przejazdów, relokacji, pustych stacji | ✅ jedno polecenie: `python -m src.data.build` |
 | Analiza opisowa i test pierwszej hipotezy (2 notebooki) | ✅ wstępnie; do przeliczenia na pełnych 2 tygodniach |
-| Wizualizacja 3D odtwarzająca prawdziwy dzień | ✅ działający prototyp |
+| Wizualizacja 3D odtwarzająca prawdziwy dzień (z pokazem z komentarzem) | ✅ działa |
 | Model popytu: ilu klientów na której stacji o której godzinie | ⏳ następny krok |
 | Symulacja i porównanie strategii relokacji | ⏳ |
 
@@ -173,17 +173,29 @@ Oba notebooki czytają gotowe pliki z `processed/` (najpierw trzeba uruchomić `
 
 ## Wizualizacja 3D (Unity)
 
-Interaktywna scena 3D Warszawy, w której **odtwarzamy wybrany prawdziwy dzień** (np. piątek 23.10) w przyspieszonym tempie:
-- **stacje** to słupki: wysokość to liczba rowerów, kolor to zapełnienie, a pusta stacja pulsuje na czerwono,
-- **każdy przejazd z danych** to świecący rower jadący od stacji do stacji (e-rowery innym kolorem),
-- **przewozy operatora** to ciężarówki z liczbą przewożonych rowerów,
-- **miasto:** budynki Śródmieścia, drogi rowerowe, metro, uczelnie (z OpenStreetMap),
-- **pora dnia i pogoda z danych:** słońce, zmrok, chmury, deszcz,
-- **panel:** zegar, pogoda, korki, liczba rowerów w drodze i pustych stacji, wykresy dnia, oś czasu; po kliknięciu stacji jej karta.
+Interaktywna scena 3D Warszawy, w której **odtwarzamy wybrany prawdziwy dzień** w przyspieszonym tempie. Korzysta ze wszystkich zebranych danych:
+
+| Co widać | Skąd |
+|---|---|
+| **stacje** jako słupki w trzech widokach: *zapełnienie* (pusta pulsuje na czerwono), *bilans 1 h* (które stacje tracą, a które zyskują rowery), *H2* (gdzie najczęściej brakuje rowerów) | stan stacji co 5 min |
+| **każdy przejazd** jako świecący rower jadący po drogach rowerowych (e-rowery innym kolorem), rowery zostawione poza stacjami | odtworzone przejazdy, `data/loose` |
+| **łuki OD**: najczęstsze trasy ostatniej godziny | przejazdy |
+| **ciężarówki operatora** z liczbą przewożonych rowerów | relokacje |
+| **miasto:** Wisła, zieleń, główne ulice, tory, granica Warszawy, budynki Śródmieścia z oknami, drogi rowerowe, metro, uczelnie | OpenStreetMap |
+| **pora dnia i pogoda:** słońce, zmierzch (zapalają się okna i latarnie), gwiazdy, chmury, mgła, deszcz | Open-Meteo |
+| **korki i utrudnienia** na 10 arteriach, **wydarzenia** (słup światła nad stadionem), **mieszkańcy** (heksagony) | TomTom, `events.csv`, Kontur |
+| **panele:** zegar, pogoda, jakość powietrza, KPI, wykresy dnia, lista stacji pustych najdłużej, karta stacji z otoczeniem | wszystko powyżej |
+
+Klawisz **T** uruchamia **pokaz z komentarzem** (ok. 2 min): kamera, widoki i napisy prowadzą przez cały dzień, od porannego szczytu przez hipotezę H2 do zmierzchu. Liczby w napisach pochodzą z danych.
 
 Po co: wizualizacja pozwala **zobaczyć** problem (np. jak rano pustoszeją stacje na osiedlach, a zapełnia się centrum). Docelowo pokaże też wynik symulacji w tym samym widoku, obok prawdziwego dnia.
 
-Jak to działa: `python -m src.viz.export` zamienia dane z `processed/` na pliki JSON (ok. 1 MB na dzień) w `unity/Assets/StreamingAssets/veturilo/`. Potem w Unity Hub otwieramy folder `unity/` (Unity 6), tworzymy pustą scenę i wciskamy **Play**: cała scena buduje się z kodu. Instrukcja, sterowanie i scenariusz 3-minutowego pokazu: [`unity/README.md`](unity/README.md).
+**Jak uruchomić:**
+1. `python -m src.viz.export` – dane z `processed/` → pliki JSON w `unity/Assets/StreamingAssets/veturilo/` (ok. 1 MB na dzień).
+2. Unity Hub → *Add project from disk* → folder `unity/` (Unity 6000.0.85f1) → scena `Assets/Scenes/Veturilo.unity` → **Play**.
+3. Do prezentacji bez edytora: menu **Veturilo → Zbuduj aplikację (Windows)** → `unity/Build/Veturilo.exe`.
+
+Instrukcja, sterowanie i scenariusz pokazu: [`unity/README.md`](unity/README.md).
 
 ## Pliki w repozytorium
 
@@ -244,7 +256,7 @@ user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["to
 - Ręczne uruchomienie: Actions → *Zbieranie danych Veturilo* → *Run workflow* (`iterations = 1` – test, `0` – pełna godzina).
 - Kontrola raz w tygodniu: brak czerwonych runów w Actions i ciągłość commitów `Dane ...`.
 - TomTom wymaga sekretu `TOMTOM_API_KEY` (pomiar co 30 min mieści się w darmowym limicie). 26.10 dwa punkty TomTom przeniesiono na główne jezdnie; wskaźnik korków łączy je z poprzednikami.
-- `fetch_static` pomija gotowe pliki (`--force KROK` tworzy ponownie); kroki: `calendar events weather air_quality elevation population gtfs osm`. Grafy dróg OSM (~130 MB, poza repo, potrzebne do tras w wizualizacji): `--only osm --force osm`.
+- `fetch_static` pomija gotowe pliki (`--force KROK` tworzy ponownie); kroki: `calendar events weather air_quality elevation population gtfs osm`. Grafy dróg OSM (~150 MB, poza repo): `--only osm --force osm`. Podkład mapy (`basemap.parquet`) i policzone trasy wizualizacji (`viz_routes_*.parquet`) są w repo – graf jest potrzebny tylko do tras nowych par stacji.
 - Poza repozytorium: `processed/`, `data/static/cache/`, grafy i cache w `data/static/osm/`, dane eksportu w `unity/Assets/StreamingAssets/veturilo/`.
 
 </details>

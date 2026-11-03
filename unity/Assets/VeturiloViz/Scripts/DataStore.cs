@@ -1,4 +1,4 @@
-// Wczytanie danych z StreamingAssets/veturilo i funkcje pomocnicze (trasy, stan w czasie t).
+// Wczytanie danych z StreamingAssets/veturilo i funkcje pomocnicze (trasy, stan w czasie t, bilans stacji).
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -55,11 +55,23 @@ namespace Veturilo.Viz
         public IndexFile Index { get; private set; }
         public StationInfo[] Stations { get; private set; }
         public CityFile City { get; private set; }
+        public BasemapFile Basemap { get; private set; }
         public Route[] BikeRoutes { get; private set; }
         public Route[] TruckRoutes { get; private set; }
         public DayFile Day { get; private set; }
         public int DayIndex { get; private set; } = -1;
         public string Error { get; private set; }
+
+        // H2: koncentracja pustek (z share_empty calego okresu zbierania)
+        public float[] EmptyRank { get; private set; }   // 0 = najczesciej pusta .. 1 = najrzadziej
+        public float Top10Share { get; private set; }
+        public float Top20Share { get; private set; }
+        public float NeverEmptyShare { get; private set; }
+        public float Gini { get; private set; }
+
+        // dzien: skumulowane wypozyczenia i zwroty na stacji (indeks = numer pomiaru 5 min)
+        int[][] depCum, arrCum;
+        List<int>[] looseBySlot, incidentsByStep;
 
         public bool Load()
         {
@@ -72,15 +84,19 @@ namespace Veturilo.Viz
                 BikeRoutes = ToRoutes(Read<RoutesFile>("routes.json").routes);
                 TruckRoutes = ToRoutes(Read<RoutesFile>("truck_routes.json").routes);
                 if (Index.days == null || Index.days.Length == 0) throw new Exception("index.json nie zawiera dni");
-                return true;
             }
             catch (Exception e)
             {
-                Error = $"Nie udalo sie wczytac danych z {Root}\n{e.Message}\n\n" +
+                Error = $"Nie udało się wczytać danych z {Root}\n{e.Message}\n\n" +
                         "Uruchom w repozytorium:  python -m src.data.build  i  python -m src.viz.export";
                 Debug.LogError(Error);
                 return false;
             }
+            // podklad jest opcjonalny (starszy eksport go nie ma)
+            try { Basemap = Read<BasemapFile>("basemap.json"); }
+            catch (Exception e) { Debug.LogWarning("Veturilo: brak podkładu mapy (" + e.Message + ")"); }
+            ComputeConcentration();
+            return true;
         }
 
         public bool LoadDay(int i)
@@ -90,19 +106,22 @@ namespace Veturilo.Viz
             {
                 Day = Read<DayFile>(Index.days[i].file);
                 DayIndex = i;
-                return true;
             }
             catch (Exception e)
             {
-                Error = $"Nie udalo sie wczytac dnia {Index.days[i].file}: {e.Message}";
+                Error = $"Nie udało się wczytać dnia {Index.days[i].file}: {e.Message}";
                 Debug.LogError(Error);
                 return false;
             }
+            IndexDay();
+            return true;
         }
 
-        /// Domyslny dzien: ostatni z pelnym pokryciem danych.
+        /// Domyslny dzien: ostatni pelny dzien roboczy (najlepiej pokazuje szczyty), inaczej ostatni pelny.
         public int DefaultDay()
         {
+            for (int i = Index.days.Length - 1; i >= 0; i--)
+                if (Index.days[i].coverage >= 0.95f && Index.days[i].dayType == "workday") return i;
             for (int i = Index.days.Length - 1; i >= 0; i--)
                 if (Index.days[i].coverage >= 0.95f) return i;
             return Index.days.Length - 1;
@@ -121,6 +140,63 @@ namespace Veturilo.Viz
             var r = new Route[src.Length];
             for (int i = 0; i < src.Length; i++) r[i] = new Route(src[i].p ?? new int[2]);
             return r;
+        }
+
+        void ComputeConcentration()
+        {
+            int n = Stations.Length;
+            var order = new int[n];
+            for (int i = 0; i < n; i++) order[i] = i;
+            Array.Sort(order, (a, b) => Stations[b].shareEmpty.CompareTo(Stations[a].shareEmpty));
+            EmptyRank = new float[n];
+            float total = 0, top10 = 0, top20 = 0; int never = 0;
+            for (int r = 0; r < n; r++)
+            {
+                float v = Stations[order[r]].shareEmpty;
+                EmptyRank[order[r]] = n > 1 ? r / (float)(n - 1) : 0;
+                total += v;
+                if (r < Mathf.CeilToInt(n * 0.1f)) top10 += v;
+                if (r < Mathf.CeilToInt(n * 0.2f)) top20 += v;
+                if (v <= 0) never++;
+            }
+            Top10Share = total > 0 ? top10 / total : 0;
+            Top20Share = total > 0 ? top20 / total : 0;
+            NeverEmptyShare = n > 0 ? never / (float)n : 0;
+            // Gini: posortowane rosnaco
+            float g = 0;
+            for (int r = 0; r < n; r++) g += (2 * (r + 1) - n - 1) * Stations[order[n - 1 - r]].shareEmpty;
+            Gini = total > 0 ? g / (n * total) : 0;
+        }
+
+        void IndexDay()
+        {
+            int n = Stations.Length, slots = SlotCount;
+            depCum = new int[n][]; arrCum = new int[n][];
+            for (int s = 0; s < n; s++) { depCum[s] = new int[slots + 1]; arrCum[s] = new int[slots + 1]; }
+            var tr = Day.trips;
+            for (int i = 0; i < tr.dep.Length; i++)
+            {
+                int a = tr.fromSt[i], b = tr.toSt[i];
+                if (a >= 0 && a < n) depCum[a][Mathf.Clamp(tr.dep[i] / Day.slotSec + 1, 1, slots)]++;
+                if (b >= 0 && b < n) arrCum[b][Mathf.Clamp(tr.arr[i] / Day.slotSec + 1, 1, slots)]++;
+            }
+            for (int s = 0; s < n; s++)
+                for (int k = 1; k <= slots; k++) { depCum[s][k] += depCum[s][k - 1]; arrCum[s][k] += arrCum[s][k - 1]; }
+
+            looseBySlot = new List<int>[slots];
+            for (int k = 0; k < slots; k++) looseBySlot[k] = new List<int>();
+            var lo = Day.loose;
+            if (lo?.slot != null)
+                for (int i = 0; i < lo.slot.Length; i++)
+                    if (lo.slot[i] >= 0 && lo.slot[i] < slots) looseBySlot[lo.slot[i]].Add(i);
+
+            int steps = Mathf.CeilToInt(Day.lengthSec / 1800f);
+            incidentsByStep = new List<int>[steps];
+            for (int k = 0; k < steps; k++) incidentsByStep[k] = new List<int>();
+            var inc = Day.incidents;
+            if (inc?.step != null)
+                for (int i = 0; i < inc.step.Length; i++)
+                    if (inc.step[i] >= 0 && inc.step[i] < steps) incidentsByStep[inc.step[i]].Add(i);
         }
 
         // ---------------------------------------------------------------- czas
@@ -145,6 +221,57 @@ namespace Veturilo.Viz
 
         public int SlotAt(float t) => Mathf.Clamp(Mathf.FloorToInt(t / Day.slotSec), 0, Mathf.Max(SlotCount - 1, 0));
 
+        /// Wypozyczenia i zwroty na stacji w oknie (t - window, t].
+        public void FlowAt(int station, float t, float window, out int departures, out int arrivals)
+        {
+            int slots = SlotCount;
+            int k1 = Mathf.Clamp(Mathf.FloorToInt(t / Day.slotSec) + 1, 0, slots);
+            int k0 = Mathf.Clamp(Mathf.FloorToInt((t - window) / Day.slotSec) + 1, 0, slots);
+            departures = depCum[station][k1] - depCum[station][k0];
+            arrivals = arrCum[station][k1] - arrCum[station][k0];
+        }
+
+        /// Wypozyczenia / zwroty stacji w kazdej godzinie dnia.
+        public void HourlyFlow(int station, float[] dep, float[] arr)
+        {
+            int perHour = 3600 / Day.slotSec, slots = SlotCount;
+            for (int h = 0; h < dep.Length; h++)
+            {
+                int k0 = Mathf.Min(h * perHour, slots), k1 = Mathf.Min((h + 1) * perHour, slots);
+                dep[h] = depCum[station][k1] - depCum[station][k0];
+                arr[h] = arrCum[station][k1] - arrCum[station][k0];
+            }
+        }
+
+        /// Ile minut stacja jest pusta bez przerwy do chwili t (0 = nie jest pusta, -1 = brak danych).
+        public int EmptyMinutes(int station, float t)
+        {
+            var b = Day.states[station].b;
+            int k = SlotAt(t);
+            if (b[k] < 0) return -1;
+            if (b[k] > 0) return 0;
+            int n = 0;
+            while (k - n >= 0 && b[k - n] == 0) n++;
+            return n * Day.slotSec / 60;
+        }
+
+        public List<int> LooseAt(float t) => looseBySlot != null && looseBySlot.Length > 0
+            ? looseBySlot[SlotAt(t)] : new List<int>();
+
+        public int StepAt(float t) => Mathf.Clamp(Mathf.FloorToInt(t / 1800f), 0, Mathf.Max(incidentsByStep.Length - 1, 0));
+        public List<int> IncidentsAt(float t) => incidentsByStep != null && incidentsByStep.Length > 0
+            ? incidentsByStep[StepAt(t)] : new List<int>();
+
+        /// Korki na korytarzu w chwili t (ostatni znany pomiar do 1 h wstecz); -1 = brak danych.
+        public float CongestionAt(Corridor c, float t)
+        {
+            if (c.cong == null || c.cong.Length == 0) return -1;
+            int k = Mathf.Clamp(Mathf.FloorToInt(t / 1800f), 0, c.cong.Length - 1);
+            for (int back = 0; back <= 2 && k - back >= 0; back++)
+                if (c.cong[k - back] >= 0) return c.cong[k - back];
+            return -1;
+        }
+
         /// Wartosc godzinowa interpolowana liniowo (t w sekundach od polnocy).
         public float HourValue(float[] arr, float t)
         {
@@ -162,6 +289,23 @@ namespace Veturilo.Viz
         {
             var local = DateTimeOffset.FromUnixTimeSeconds(Day.startEpoch + (long)t).ToOffset(LocalOffset(t));
             return local.ToString("HH:mm");
+        }
+
+        /// Godzina lokalna jako liczba (np. 7.5 = 7:30) - do zdarzen pokazu.
+        public float LocalHour(float t)
+        {
+            var local = DateTimeOffset.FromUnixTimeSeconds(Day.startEpoch + (long)t).ToOffset(LocalOffset(t));
+            return local.Hour + local.Minute / 60f;
+        }
+
+        /// Czas od polnocy [s] dla godziny lokalnej (uwzglednia dzien zmiany czasu).
+        public float TimeOfLocalHour(float hour)
+        {
+            float t = hour * 3600f;
+            int diff = Day.lengthSec - 86400;
+            if (diff > 0 && hour >= 3) t += 3600;   // jesienia 2:00-3:00 jest dwa razy
+            if (diff < 0 && hour >= 3) t -= 3600;
+            return Mathf.Clamp(t, 0, Day.lengthSec - 1);
         }
 
         // Strefa Europe/Warsaw bez bazy stref (dziala tak samo na kazdym systemie):
@@ -189,6 +333,16 @@ namespace Veturilo.Viz
             if (code >= 85 && code <= 86) return "przelotny śnieg";
             if (code >= 95) return "burza";
             return "—";
+        }
+
+        public static string AqiText(float aqi)
+        {
+            if (aqi <= 0) return "";
+            if (aqi <= 20) return "bardzo dobre";
+            if (aqi <= 40) return "dobre";
+            if (aqi <= 60) return "umiarkowane";
+            if (aqi <= 80) return "złe";
+            return "bardzo złe";
         }
 
         public static string DayTypeText(string t)

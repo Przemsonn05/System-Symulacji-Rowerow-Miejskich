@@ -13,5 +13,9 @@ data/static/osm/*
 !data/static/osm/cycleways.parquet
 !data/static/osm/buildings_srodmiescie.parquet
 !data/static/osm/boundary.geojson
+# podklad mapy i policzone trasy do wizualizacji 3D (kilka MB) - zeby nie trzeba bylo pobierac OSM
+!data/static/osm/basemap.parquet
+!data/static/osm/viz_routes_bike.parquet
+!data/static/osm/viz_routes_drive.parquet
 # Surowe pobrane pliki (GTFS ~100 MB, populacja ~50 MB) - odtwarzane przez fetch_static
 data/static/cache/
