@@ -1,0 +1,9 @@
+{
+  "runs_verified": 360,
+  "station_rows_verified": 36205920,
+  "seeds": 30,
+  "common_random_numbers": true,
+  "conservation": true,
+  "nonnegative_stations": true,
+  "summary_matches_replications": true
+}

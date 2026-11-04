@@ -17,6 +17,7 @@ Wynik (processed/):
 
 import argparse
 import datetime as dt
+import sys
 
 import pandas as pd
 
@@ -288,6 +289,8 @@ def extra_report(balance, empty, fleet, trips):
 
 
 def main(argv=None):
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--no-features", action="store_true", help="pomin cechy otoczenia stacji (OSM)")
     args = ap.parse_args(argv)
