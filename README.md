@@ -6,11 +6,13 @@ Gdy model będzie zgodny z rzeczywistością, możemy na nim sprawdzać rzeczy, 
 
 ## O co pytamy
 
+Silnik DES i kamień milowy na 5 XI: [instrukcja, model i kontrakty danych](docs/simulation.md). Na Windows uruchom `./run_milestone.ps1`; pełne wyniki lokalne powstają w `results/h3/REPORT.md`.
+
 1. **Skąd biorą się puste stacje?** Klient przychodzi, a roweru nie ma: to podstawowy problem systemu. Chcemy wiedzieć, gdzie i kiedy to się dzieje.
 2. **Od czego zależy liczba wypożyczeń?** Pora dnia, dzień tygodnia, pogoda, zajęcia na uczelniach, święta, otoczenie stacji (metro, biura, uczelnie).
 3. **Która strategia przewożenia rowerów najlepiej zmniejsza liczbę klientów, którzy odchodzą z niczym?** To odpowiemy symulacją.
 
-## Stan prac (3.11.2026)
+## Stan prac (4.11.2026)
 
 | Etap | Stan |
 |---|---|
@@ -19,7 +21,7 @@ Gdy model będzie zgodny z rzeczywistością, możemy na nim sprawdzać rzeczy, 
 | Przetworzenie danych: odtworzenie przejazdów, relokacji, pustych stacji | ✅ jedno polecenie: `python -m src.data.build` |
 | Analiza opisowa i test pierwszej hipotezy (2 notebooki) | ✅ wstępnie; do przeliczenia na pełnych 2 tygodniach |
 | Wizualizacja 3D odtwarzająca prawdziwy dzień (z pokazem z komentarzem) | ✅ działa |
-| Modele zachowań (popyt, cel podróży, czas jazdy, reguły klienta), kalibracja i walidacja | ✅ wstępnie: `python -m src.model.pipeline` |
+| Model popytu: ilu klientów na której stacji o której godzinie | ⏳ następny krok |
 | Symulacja i porównanie strategii relokacji | ⏳ |
 
 **Czy danych jest już dość?** Mamy 12 pełnych dób (7 dni roboczych, 2 soboty, 2 niedziele/święta), ok. 104 tys. przejazdów.
@@ -162,7 +164,7 @@ Hipotezy H1–H6 pochodzą z planu projektu (issues #1–#3). Trzy dodatkowe (oz
 |---|---|---|---|
 | **H1** | Pogoda wpływa na liczbę przejazdów | pierwszy sygnał, za mało danych | model popytu |
 | **H2** | Puste stacje to problem niewielkiej części stacji | ✅ wstępnie potwierdzona | dane (notebook) |
-| **H3** | Lepsza strategia relokacji zmniejsza utracony popyt | ⏳ do zbadania | symulacja DES |
+| **H3** | Lepsza strategia relokacji zmniejsza utracony popyt | ✅ eksperyment wstępny; do kalibracji | symulacja DES |
 | **H4** | Zajęcia na uczelniach zwiększają popyt przy uczelniach | ⏳ do zbadania | model popytu |
 | **H5a** | W korki ludzie częściej wybierają rower | ⏳ do zbadania | model popytu |
 | **H5b** | Korki spowalniają ciężarówki i osłabiają relokację | ⏳ do zbadania | symulacja DES |
@@ -195,7 +197,7 @@ Hipotezy H1–H6 pochodzą z planu projektu (issues #1–#3). Trzy dodatkowe (oz
 
 **Hipoteza:** lepsza strategia przewożenia rowerów wyraźnie zmniejsza utracony popyt (klientów, którzy odchodzą od pustej stacji), a każda kolejna ciężarówka daje coraz mniejszy zysk.
 
-**Stan:** ⏳ do zbadania w symulacji. To odpowiedź na główne pytanie projektu.
+**Stan:** ✅ wykonano wstępne porównanie 3 strategii × 1–4 ciężarówki × 30 replikacji. [Raport z 95% CI, Wilcoxonem i frontem Pareto](docs/milestone-2026-11-05/REPORT.md). Dla strategii progowej z 4 ciężarówkami średni utracony popyt spadł z 379,8 do 149,4 na dobę w przyjętym modelu. Popyt i OD są estymatami roboczymi, a parametry jazdy i agentów wymagają kalibracji; wynik nie rozstrzyga jeszcze H3 dla rzeczywistego Veturilo.
 
 **Do zbadania:** porównanie strategii (brak, obecna strategia operatora, progowa, nocna, predykcyjna) z 1–4 ciężarówkami. Każdy wariant w 30 powtórzeniach ze wspólnymi liczbami losowymi, wynik ze średnią i 95% przedziałem ufności, porównanie testem Wilcoxona. Wynik to wykres „utracony popyt vs kilometry ciężarówek”.
 

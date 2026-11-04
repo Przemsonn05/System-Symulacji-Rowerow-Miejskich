@@ -1,5 +1,8 @@
 __pycache__/
 *.pyc
+.venv/
+.pytest_cache/
+results/
 .ipynb_checkpoints/
 
 # Wyniki build - odtwarzane poleceniem python -m src.data.build
