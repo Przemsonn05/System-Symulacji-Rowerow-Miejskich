@@ -14,3 +14,5 @@ pyproj>=3.6
 scipy>=1.11
 matplotlib>=3.8
 jupyter
+statsmodels>=0.14
+optuna>=3.6

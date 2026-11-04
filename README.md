@@ -19,7 +19,7 @@ Gdy model będzie zgodny z rzeczywistością, możemy na nim sprawdzać rzeczy, 
 | Przetworzenie danych: odtworzenie przejazdów, relokacji, pustych stacji | ✅ jedno polecenie: `python -m src.data.build` |
 | Analiza opisowa i test pierwszej hipotezy (2 notebooki) | ✅ wstępnie; do przeliczenia na pełnych 2 tygodniach |
 | Wizualizacja 3D odtwarzająca prawdziwy dzień (z pokazem z komentarzem) | ✅ działa |
-| Model popytu: ilu klientów na której stacji o której godzinie | ⏳ następny krok |
+| Modele zachowań (popyt, cel podróży, czas jazdy, reguły klienta), kalibracja i walidacja | ✅ wstępnie: `python -m src.model.pipeline` |
 | Symulacja i porównanie strategii relokacji | ⏳ |
 
 **Czy danych jest już dość?** Mamy 12 pełnych dób (7 dni roboczych, 2 soboty, 2 niedziele/święta), ok. 104 tys. przejazdów.
@@ -113,6 +113,22 @@ Folder nie jest w repozytorium. Każdy odtwarza go u siebie poleceniem `build`.
 | `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion`, `congestion_max`, `congestion_stable`, `n_corridors`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
 
 </details>
+
+## Modele zachowań, kalibracja i walidacja (`python -m src.model.pipeline`, ok. 10 min)
+
+Jedno polecenie buduje modele, kalibruje je, sprawdza na dniach, których model „nie widział”, i testuje hipotezy H1, H4, H5a. Wyniki trafiają do `processed/model/`, a raport z tabelami i wykresami to notebook [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb). Podział dni ustawia `--calib OD DO --valid OD DO` (domyślnie kalibracja 23–29.10, walidacja 30.10–4.11); `--build` najpierw przebudowuje `processed/`, `--quick` to szybki test łańcucha.
+
+| Plik (`src/model/`) | Co robi |
+|---|---|
+| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę (własny poziom każdej stacji w każdej porze dnia, godzina × typ dnia, pogoda, zmrok, kalendarz uczelni, korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. |
+| `od.py` | **cel podróży**: macierz OD z przejazdów + model grawitacyjny (popularność celu × e^(−β·km)); w symulacji macierz wygładzona grawitacją |
+| `duration.py` | **czas jazdy**: log-normalny zależny od odległości, osobno powroty na tę samą stację; czas z danych jako przedział ±5 min |
+| `simulation.py` | **referencyjna symulacja** (stacje, klienci, relokacje operatora z danych) do kalibracji i walidacji, dopóki nie ma pełnej `run_simulation()`. Reguły klienta: przy pustej stacji idzie do sąsiedniej (`p_walk`, `radius_m`) albo rezygnuje (utracony popyt); przy przepełnionej czasem odjeżdża do sąsiedniej (`overflow_k`). |
+| `calibration.py` | **kalibracja** Optuną parametrów klienta i **walidacja**: symulacja doba po dobie od stanu z północy, metryki, modele bazowe (persystencja, średnia historyczna, stan z północy) |
+| `hypotheses.py` | **H1, H4, H5a**: współczynniki z 95% CI (błędy klastrowane po godzinie), test LR członu T² |
+| `pipeline.py` | cały łańcuch jednym poleceniem |
+
+Wyniki dla symulacji (Osoba 3): `processed/model/demand_model.pkl`, `od_model.pkl`, `duration_model.pkl` (dopasowane na wszystkich dniach) i `sim_params.json` (skalibrowane parametry klienta). Użycie: `pickle.load(...)`, potem `demand.rate(station_ids, context_rows)` → λ na godzinę, `od.probs(slot)` → P(cel | start), `duration.sample(km, rng)`.
 
 ## Notebooki – co już przeanalizowaliśmy
 
@@ -293,6 +309,7 @@ src/data/                   przygotowanie danych
   context.py                kontekst godzinowy (pogoda, słońce, kalendarz, wydarzenia, korki)
   features.py               opis otoczenia stacji
   config.py                 ścieżki i stałe
+src/model/                  modele zachowań, symulacja referencyjna, kalibracja, walidacja, hipotezy
 src/viz/export.py           przygotowanie danych dla wizualizacji 3D
 
 notebooks/                  analizy (opis wyżej)
@@ -308,6 +325,7 @@ git pull                                                     # nowe dane dochodz
 pip install -r requirements.txt                              # raz
 python -m src.data.fetch_static --only weather air_quality   # pogoda z ostatnich dni
 python -m src.data.build                                     # -> processed/
+python -m src.model.pipeline                                 # -> processed/model/ (wyniki w notebooks/modele_walidacja.ipynb)
 python -m src.viz.export                                     # -> dane dla Unity (opcjonalnie)
 ```
 
