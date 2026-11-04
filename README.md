@@ -136,40 +136,110 @@ Oba notebooki czytają gotowe pliki z `processed/` (najpierw trzeba uruchomić `
 3. Sprawdza **stabilność wyniku**: liczy go osobno dla każdego dnia i z pominięciem po kolei każdego dnia. Dzięki temu wiemy, że wynik nie bierze się z jednego nietypowego dnia.
 4. Rysuje **mapę stacji często pustych**.
 
-## Hipotezy – co sprawdzamy i co już wiemy
+## Hipotezy
 
-**H2. Puste stacje to problem niewielkiej części stacji, a nie całego systemu.**
-*Status: wstępnie potwierdzona.* 10% najczęściej pustych stacji odpowiada za prawie połowę (44%) całego czasu, w którym jakaś stacja była pusta. 20% stacji odpowiada za ponad dwie trzecie (68%). Jednocześnie co trzecia stacja (31%) nie była pusta ani razu. Współczynnik Giniego wynosi 0,68, czyli koncentracja jest wyraźna.
-*Co z tego wynika:* operator nie musi pilnować wszystkich 340 stacji. Wystarczy dobrze obsłużyć kilkadziesiąt, a symulacja pokaże, które.
-*Do zrobienia:* powtórzyć na ≥ 2 tygodniach, sprawdzić, czy to te same stacje w różne dni.
+Hipotezy H1–H6 pochodzą z planu projektu (issues #1–#3). Trzy dodatkowe (oznaczone literami A–C) wynikły z analizy zebranych danych.
 
-**Pogoda: deszcz i zmrok zmniejszają liczbę przejazdów bardziej niż sama temperatura.**
-*Status: widać, ale za mało danych na test.* W niedzielę 25.10 po rozpoczęciu deszczu (ok. 18:00) przejazdów było kilka razy mniej niż o tej porze w sobotę. Godzin z deszczem było jednak dotąd tylko ok. 20.
-*Co z tego wynika:* jeśli się potwierdzi, symulacja dostanie scenariusze „deszczowy dzień” i „krótki zimowy dzień”.
+### Podsumowanie
 
-**Darmowe 20 minut wpływa na to, jak długo ludzie jeżdżą.**
-*Status: widoczne w danych.* 73% przejazdów kończy się w ciągu 20 minut.
-*Co z tego wynika:* czas jazdy w symulacji nie może być losowany z prostego rozkładu. Musi uwzględniać tę granicę.
+| | Hipoteza | Stan | Czym badamy |
+|---|---|---|---|
+| **H1** | Pogoda wpływa na liczbę przejazdów | pierwszy sygnał, za mało danych | model popytu |
+| **H2** | Puste stacje to problem niewielkiej części stacji | ✅ wstępnie potwierdzona | dane (notebook) |
+| **H3** | Lepsza strategia relokacji zmniejsza utracony popyt | ⏳ do zbadania | symulacja DES |
+| **H4** | Zajęcia na uczelniach zwiększają popyt przy uczelniach | ⏳ do zbadania | model popytu |
+| **H5a** | W korki ludzie częściej wybierają rower | ⏳ do zbadania | model popytu |
+| **H5b** | Korki spowalniają ciężarówki i osłabiają relokację | ⏳ do zbadania | symulacja DES |
+| **H6** | Otoczenie stacji wyjaśnia różnice w popycie | ⏳ do zbadania | model popytu |
+| **A** | Darmowe 20 minut kształtuje długość jazdy | ✅ widoczne w danych | dane |
+| **B** | E-rowery to osobna grupa klientów | ✅ widoczne w danych | dane |
+| **C** | Operator nie nadąża tam, gdzie najczęściej brakuje rowerów | ⏳ do zbadania | dane |
 
-**E-rowery to osobna grupa klientów.**
-*Status: widoczne w danych.* E-rowery to 8% rowerów na stacjach, a 19% przejazdów.
-*Co z tego wynika:* w symulacji warto modelować e-rowery osobno. Do sprawdzenia: czy klienci wybierają e-rower zależnie od poziomu baterii i czy jeżdżą nim dalej.
+### H1. Pogoda
 
-**Operator nie nadąża z dowożeniem rowerów tam, gdzie najczęściej ich brakuje.**
-*Status: do sprawdzenia.* Porównamy listę przewozów operatora z listą okresów pustych stacji.
-*Co z tego wynika:* jeśli się potwierdzi, to jest miejsce na lepszą strategię, którą przetestujemy w symulacji.
+**Hipoteza:** deszcz i zmrok zmniejszają liczbę przejazdów bardziej niż sama temperatura. Temperatura działa jak „odwrócone U”: za zimno i za gorąco zniechęca do roweru.
 
-**Liczba wypożyczeń zależy od otoczenia stacji (biura, uczelnie, metro, mieszkańcy).**
-*Status: do sprawdzenia.* Dane są gotowe (`station_hourly` + `stations`).
-*Co z tego wynika:* model popytu, który działa także dla nowej, hipotetycznej stacji.
+**Stan:** pierwszy sygnał. W niedzielę 25.10 po rozpoczęciu deszczu (ok. 18:00) przejazdów było kilka razy mniej niż o tej porze w sobotę. Danych jest jednak za mało: ok. 20 godzin z deszczem i temperatury tylko 1–14 °C.
 
-## Ważne przy budowie modelu
+**Do zbadania:** wpływ opadu, temperatury i zmroku w modelu popytu (regresja ujemna dwumianowa), z 95% przedziałami ufności i testem członu kwadratowego temperatury. Potrzeba więcej dni deszczowych i mroźnych.
 
-- **Stacja nie blokuje zwrotów.** Na stacjach Veturilo 3.0 można zostawić rower ponad liczbę stojaków (ok. 40% pomiarów to stacja przepełniona). W symulacji klient traci tylko wtedy, gdy stacja jest **pusta**.
-- **Na pustej stacji nie widać popytu.** Jeśli stacja była pusta przez godzinę, to w danych jest 0 wypożyczeń, choć klienci przychodzili. Dlatego popyt liczymy tylko z czasu, gdy rowery były dostępne (kolumna `departure_rate_per_h`), a nie z samej liczby wypożyczeń.
-- **Liczba rowerów w systemie się zmienia** (serwis, magazyn): patrz `fleet_timeseries`.
-- Z `trips` trzeba odfiltrować oznaczone błędy: `is_flicker`, `too_fast`, `is_long` (w `station_hourly` jest to już zrobione). Czas przejazdu jest zawyżony średnio o ok. 5 min, bo mierzymy co 5 min.
-- Dni nietypowe: 31.10–2.11 (Wszystkich Świętych), 11.11, 24–26.12; zmiana czasu 25.10 (dlatego wszystko w UTC).
+**Po co:** scenariusze „deszczowy dzień” i „krótki zimowy dzień” w symulacji.
+
+### H2. Koncentracja pustych stacji
+
+**Hipoteza:** brak rowerów nie rozkłada się równo po mieście. Niewielka część stacji odpowiada za większość czasu, w którym stacje są puste.
+
+**Stan:** ✅ wstępnie potwierdzona ([notebook](notebooks/puste_i_przepelnione_stacje.ipynb)). Współczynnik Giniego czasu pustek wynosi 0,68. 10% najczęściej pustych stacji odpowiada za 44% czasu pustek, a 20% stacji za 68%. Co trzecia stacja (31%) nie była pusta ani razu.
+
+**Do zbadania:** powtórzyć na ≥ 2 tygodniach danych (z bootstrapem po dniach) i sprawdzić, czy często puste są co dzień te same stacje.
+
+**Po co:** strategia relokacji może skupić się na kilkudziesięciu stacjach zamiast na wszystkich 340.
+
+### H3. Strategie relokacji
+
+**Hipoteza:** lepsza strategia przewożenia rowerów wyraźnie zmniejsza utracony popyt (klientów, którzy odchodzą od pustej stacji), a każda kolejna ciężarówka daje coraz mniejszy zysk.
+
+**Stan:** ⏳ do zbadania w symulacji. To odpowiedź na główne pytanie projektu.
+
+**Do zbadania:** porównanie strategii (brak, obecna strategia operatora, progowa, nocna, predykcyjna) z 1–4 ciężarówkami. Każdy wariant w 30 powtórzeniach ze wspólnymi liczbami losowymi, wynik ze średnią i 95% przedziałem ufności, porównanie testem Wilcoxona. Wynik to wykres „utracony popyt vs kilometry ciężarówek”.
+
+### H4. Kalendarz akademicki i szkolny
+
+**Hipoteza:** w dni zajęć popyt na stacjach w pobliżu uczelni jest wyraźnie wyższy niż w dni wolne od zajęć.
+
+**Stan:** ⏳ do zbadania. Kalendarze UW, PW, SGH, WUM i szkół są gotowe (`data/static/calendar.csv`).
+
+**Do zbadania:** interakcja „dzień zajęć × stacja przy uczelni” w modelu popytu. Najlepiej porównać okres zajęć z przerwą świąteczną albo sesją, bo na razie prawie wszystkie zebrane dni to dni zajęć.
+
+### H5. Korki
+
+**H5a. Hipoteza:** przy większych korkach ludzie częściej wybierają rower.
+**Do zbadania:** wskaźnik korków z TomTom w modelu popytu, z kontrolą godziny, żeby nie pomylić efektu korka z efektem szczytu.
+
+**H5b. Hipoteza:** korki spowalniają ciężarówki operatora, więc relokacja działa gorzej.
+**Do zbadania:** scenariusz w symulacji z wolniejszymi ciężarówkami.
+
+**Stan:** ⏳ do zbadania. Dane o ruchu z TomTom są zbierane co 30 minut.
+
+### H6. Otoczenie stacji
+
+**Hipoteza:** to, co jest wokół stacji (biura, uczelnie, lokale, metro, liczba mieszkańców), wyjaśnia większość różnic w popycie między stacjami. Stacje „biurowe” mają szczyt rano, a „restauracyjne” wieczorem.
+
+**Stan:** ⏳ do zbadania. Dane są gotowe (`station_hourly` + `stations`).
+
+**Do zbadania:** cechy otoczenia × pora dnia w modelu popytu, sprawdzone na stacjach pominiętych przy dopasowaniu modelu (leave-stations-out).
+
+**Po co:** model popytu, który przewidzi ruch także dla nowej, hipotetycznej stacji.
+
+### A. Darmowe 20 minut
+
+**Hipoteza:** darmowe pierwsze 20 minut w cenniku kształtuje to, jak długo ludzie jeżdżą.
+
+**Stan:** ✅ widoczne w danych. 73% przejazdów kończy się w ciągu 20 minut.
+
+**Do zbadania:** jak wyraźne jest „spiętrzenie” tuż przed 20. minutą.
+
+**Wniosek dla modelu:** czasu jazdy nie można losować z prostego rozkładu. Musi uwzględniać ten próg.
+
+### B. E-rowery
+
+**Hipoteza:** e-rowery to osobna grupa klientów.
+
+**Stan:** ✅ widoczne w danych. E-rowery to 8% rowerów na stacjach, ale 19% przejazdów.
+
+**Do zbadania:** czy klienci wybierają e-rower zależnie od poziomu baterii i czy jeżdżą nim dalej.
+
+**Wniosek dla modelu:** e-rowery modelujemy jako osobny strumień popytu.
+
+### C. Relokacje operatora
+
+**Hipoteza:** operator nie nadąża z dowożeniem rowerów tam, gdzie najczęściej ich brakuje.
+
+**Stan:** ⏳ do zbadania.
+
+**Do zbadania:** porównać przewozy operatora (`rebalancing_observed`) z okresami pustych stacji (`empty_periods`): czy rowery trafiają na stacje często puste i jak szybko po opustoszeniu.
+
+**Po co:** jeśli się potwierdzi, jest miejsce na lepszą strategię, którą przetestujemy w symulacji (H3).
 
 ## Wizualizacja 3D (Unity)
 
