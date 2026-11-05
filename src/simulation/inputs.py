@@ -64,7 +64,7 @@ def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, 
         hourly["exposure"] = hourly.minutes_available / 60
         grouped = hourly.groupby(["station_id", "local_hour"])[["departures", "exposure"]].sum()
         grouped["rate"] = grouped.departures / grouped.exposure.clip(lower=1.0)
-        rates = grouped.rate.unstack("local_hour").reindex(index=stations.station_id, columns=range(24)).fillna(0).to_numpy(float)
+        rates = grouped.rate.unstack("local_hour").reindex(index=stations.station_id, columns=range(24)).fillna(0).to_numpy(float, copy=True)
         rates[stations.station_id.isin(inactive), :] = 0
         context = pd.read_parquet(processed / "context_hourly.parquet")
         context = context[(context.time >= start) & (context.time < stop)]

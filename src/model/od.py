@@ -81,6 +81,11 @@ class OdModel:
     def probs(self, slot):
         return self.P[slot]
 
+    def matrix(self, context):
+        """P(cel | start) dla godziny z kontekstu (interfejs symulacji src/simulation)."""
+        weekend = context.get("day_type", "workday") != "workday"
+        return self.P[int(slot_index([context["local_hour"]], [weekend])[0])]
+
     def evaluate(self, trips, stations):
         """Porownanie na innych przejazdach: log-wiarygodnosc na przejazd (wyzej = lepiej) i CPC
         przeplywow (1 = identyczne macierze)."""

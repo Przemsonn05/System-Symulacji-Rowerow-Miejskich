@@ -41,6 +41,7 @@ class SimulationParams:
     ride_sigma: float = 0.4
     snapshot_interval_min: float = 5.0
     congestion_multiplier: float = 1.0
+    ride_time_model: object = None  # opcjonalnie: obiekt z mean_minutes(km) (model czasu jazdy Osoby 2)
     output_dir: object = None
     audit_every_event: bool = True
     provenance: dict = field(default_factory=dict)
@@ -208,7 +209,11 @@ class Simulation:
         self.rentals += 1
         self.log("rental", pickup, request_id=request.request_id, bike=bike.number, to_station=self.ids[destination])
         self.changed()
-        ride = max(0.5, self.p.network.bike_km[pickup, destination] * 60 / self.p.bike_speed_kmh) * float(request.ride_factor)
+        km = self.p.network.bike_km[pickup, destination]
+        if self.p.ride_time_model is not None:
+            ride = float(self.p.ride_time_model.mean_minutes(km)) * float(request.ride_factor)
+        else:
+            ride = max(0.5, km * 60 / self.p.bike_speed_kmh) * float(request.ride_factor)
         yield self.env.timeout(ride)
         self.log("user_arrival_destination", destination, request_id=request.request_id, bike=bike.number)
         final = destination

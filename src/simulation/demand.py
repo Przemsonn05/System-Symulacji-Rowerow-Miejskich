@@ -94,12 +94,19 @@ def generate_requests(stations, network, params, demand, od, context, seed):
         weights = np.exp(-network.bike_km / 3.0)
         np.fill_diagonal(weights, 0.05)
         od = weights / weights.sum(axis=1, keepdims=True)
-    od = np.asarray(od, dtype=float)
-    if od.shape != (n, n) or not np.isfinite(od).all() or (od < 0).any() or (od.sum(axis=1) <= 0).any():
-        raise ValueError("OD must be a finite nonnegative station-by-station matrix")
-    od = od / od.sum(axis=1, keepdims=True)
-    cumulative = od.cumsum(axis=1)
-    cumulative[:, -1] = 1.0
+
+    def od_cumulative(matrix):
+        matrix = np.asarray(matrix, dtype=float)
+        if matrix.shape != (n, n) or not np.isfinite(matrix).all() or (matrix < 0).any() or (matrix.sum(axis=1) <= 0).any():
+            raise ValueError("OD must be a finite nonnegative station-by-station matrix")
+        cumulative = (matrix / matrix.sum(axis=1, keepdims=True)).cumsum(axis=1)
+        cumulative[:, -1] = 1.0
+        return cumulative
+
+    # OD zalezne od pory dnia: obiekt z matrix(context) (model celu podrozy Osoby 2); inaczej stala macierz
+    time_varying = hasattr(od, "matrix")
+    if not time_varying:
+        cumulative = od_cumulative(od)
     rows = []
     minute = 0.0
     counters = np.zeros(n, dtype=int)
@@ -107,6 +114,8 @@ def generate_requests(stations, network, params, demand, od, context, seed):
     while minute < params.duration_min:
         ctx = context_at(params.start_time, minute, context)
         span = min(params.duration_min - minute, next_hour_minute(params.start_time, minute) - minute)
+        if time_varying:
+            cumulative = od_cumulative(od.matrix(ctx))
         rates = np.asarray(demand.rates(stations.copy(), ctx), dtype=float)
         if rates.shape != (n,) or not np.isfinite(rates).all() or (rates < 0).any():
             raise ValueError("Demand rates must be finite, nonnegative and match stations")

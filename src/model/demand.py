@@ -1,13 +1,22 @@
 """Model popytu: regresja ujemna dwumianowa liczby wypozyczen na stacje x godzine.
 
-log lambda_i(t) = alpha_{i,blok} + s_{h,d} + b_rain R + b_T T + b_T2 T^2 + b_dark dark
-                  + b_cal (zajecia x stacja przy uczelni) + b_cong cong
+Model do symulacji (TERMS):
+  log lambda_i(t) = alpha_{i,blok} + s_{h,d} + b_T T + b_T2 T^2 + b_cong cong
+
+Te 3 czynniki zewnetrzne wybrane na danych: najlepiej przewidywaly tydzien walidacji (lepiej niz
+wszystkie 7). Pelny model do testow hipotez (TERMS_FULL) ma dodatkowo opad, zmrok,
+zajecia x stacja przy uczelni i sobote.
+
+Dopasowanie na macierzy rzadkiej (wlasne IRLS): ok. 1500 kolumn poziomow stacja x pora dnia i godzin
+to prawie same zera, a gesta macierz w statsmodels zajmowala > 12 GB pamieci juz dla tygodnia danych.
 
 - alpha_{i,blok}: wlasny poziom stacji w kazdym bloku pory dnia (noc, rano, poludnie, popoludnie,
   wieczor), wiec kazda stacja ma wlasny ksztalt doby (np. osiedle rano, centrum po poludniu);
   bloki z < MIN_BLOCK_DEPARTURES wypozyczen (zwykle noc) dziela wspolny poziom "reszta" stacji,
   bo przy zerze wypozyczen poziom bloku nie ma skonczonej wartosci,
-- s_{h,d}: wspolny profil godzinowy w dni robocze i weekendy (ksztalt wewnatrz bloku) + sobota,
+- s_{h,d}: wspolny profil godzinowy w dni robocze i weekendy (ksztalt wewnatrz bloku),
+- temperatura w prognozie jest przycinana do zakresu z danych do dopasowania: parabola oszacowana
+  na 1-14 st. C poza tym zakresem rosnie bez sensu (25 st. C dawaloby x21),
 - offset log(minuty z rowerem / 60): popyt na godzine, w ktorej stacja miala rowery (godziny pustej
   stacji sa ocenzurowane), godziny z < 15 min dostepnosci pominiete,
 - "dzien zajec" sam w sobie nie wchodzi do modelu: w zebranych danych pokrywa sie z dniem roboczym
@@ -16,12 +25,13 @@ log lambda_i(t) = alpha_{i,blok} + s_{h,d} + b_rain R + b_T T + b_T2 T^2 + b_dar
 Wynik: lambda = oczekiwana liczba chetnych do wypozyczenia na godzine.
 """
 
+from dataclasses import dataclass
+
 import numpy as np
 import pandas as pd
-import patsy
+import scipy.sparse as sp
 import statsmodels.api as sm
-import statsmodels.formula.api as smf
-from scipy import optimize
+from scipy import optimize, stats
 
 from .data import BLOCKS, context_filled, load, time_block
 
@@ -32,8 +42,9 @@ T_REF, T_SCALE = 10.0, 5.0
 # profil godzinowy dublowalby poziomy stacja x blok (blok = suma swoich godzin).
 REF_HOURS = {a for _, a, _ in BLOCKS}
 
-FORMULA = ("departures ~ 0 + C(station_block) + C(hour_type, Treatment('ref')) + saturday"
-           " + rain + temp + temp2 + dark + classes_near_uni + congestion")
+# Czynniki zewnetrzne (obok poziomow stacja x pora dnia i godzin, ktore sa zawsze).
+TERMS = ["temp", "temp2", "congestion"]
+TERMS_FULL = TERMS + ["rain", "dark", "classes_near_uni", "saturday"]
 
 
 def context_terms(ctx):
@@ -94,22 +105,84 @@ def build_panel(days):
     return p
 
 
-def fit_nb(panel, formula=FORMULA, cluster_by_time=False):
-    """GLM NB2. alpha (nadmierna dyspersja) z najwiekszej wiarygodnosci przy srednich z modelu Poissona.
+def design(p, levels, terms):
+    """Macierz rzadka [stacja x pora dnia | godzina (bez "ref") | czynniki]; levels z dopasowania."""
+    rows = np.arange(len(p))
+
+    def dummies(values, categories):
+        code = pd.Categorical(values, categories=categories).codes
+        ok = code >= 0
+        return sp.csr_matrix((np.ones(ok.sum()), (rows[ok], code[ok])), shape=(len(p), len(categories)))
+
+    return sp.hstack([dummies(p["station_block"], levels[0]), dummies(p["hour_type"], levels[1]),
+                      sp.csr_matrix(p[terms].to_numpy(float))], format="csr")
+
+
+def _irls(X, y, offset, alpha, beta, max_iter=100, tol=1e-9):
+    """IRLS dla regresji ujemnej dwumianowej z log-linkiem (alpha = 0: Poisson).
+    Zwraca wspolczynniki i macierz informacji X'WX (mala, gesta: kolumny x kolumny)."""
+    family = sm.families.NegativeBinomial(alpha=alpha) if alpha > 0 else sm.families.Poisson()
+    ll_old = -np.inf
+    for _ in range(max_iter):
+        mu = np.exp(X @ beta + offset)
+        w = mu / (1 + alpha * mu)
+        XtW = X.T.multiply(w).tocsr()
+        info = (XtW @ X).toarray()
+        beta = np.linalg.solve(info, XtW @ (X @ beta + (y - mu) / mu))
+        ll = family.loglike(y, np.exp(X @ beta + offset))
+        if abs(ll - ll_old) < tol * (abs(ll) + 1):
+            break
+        ll_old = ll
+    mu = np.exp(X @ beta + offset)
+    return beta, (X.T.multiply(mu / (1 + alpha * mu)).tocsr() @ X).toarray()
+
+
+@dataclass
+class NBFit:
+    params: pd.Series
+    bse: pd.Series
+    pvalues: pd.Series
+    llf: float
+    nb_alpha: float
+    levels: tuple
+    terms: list
+    temp_range: tuple
+
+
+def fit_nb(panel, terms=TERMS, cluster_by_time=False):
+    """Regresja NB2. alpha (nadmierna dyspersja) z najwiekszej wiarygodnosci przy srednich z modelu Poissona.
 
     cluster_by_time: odporne bledy standardowe klastrowane po godzinie (pogoda i korki sa wspolne dla
     wszystkich stacji w danej godzinie, wiec obserwacje stacja x godzina nie sa niezalezne)."""
+    levels = (sorted(panel["station_block"].unique()), sorted(set(panel["hour_type"]) - {"ref"}))
+    X = design(panel, levels, terms)
+    y = panel["departures"].to_numpy(float)
     offset = np.log(panel["exposure"].to_numpy())
-    pois = smf.glm(formula, panel, offset=offset, family=sm.families.Poisson()).fit()
-    y, mu = pois.model.endog, pois.fittedvalues
+    # start: poziom stacja x pora dnia = log(wypozyczenia / godziny dostepnosci)
+    level = panel.groupby("station_block")[["departures", "exposure"]].sum().reindex(levels[0])
+    beta = np.zeros(X.shape[1])
+    beta[:len(levels[0])] = np.log((level["departures"] + 0.5) / level["exposure"]).to_numpy()
+    beta, _ = _irls(X, y, offset, 0.0, beta)
+    mu = np.exp(X @ beta + offset)
     res = optimize.minimize_scalar(lambda la: -sm.families.NegativeBinomial(alpha=np.exp(la)).loglike(y, mu),
                                    bounds=(-8, 3), method="bounded")
     alpha = float(np.exp(res.x))
-    kw = {"cov_type": "cluster", "cov_kwds": {"groups": pd.factorize(panel["time"])[0]}} if cluster_by_time else {}
-    fit = smf.glm(formula, panel, offset=offset, family=sm.families.NegativeBinomial(alpha=alpha)).fit(
-        start_params=pois.params, **kw)
-    fit.nb_alpha = alpha
-    return fit
+    beta, info = _irls(X, y, offset, alpha, beta)
+    mu = np.exp(X @ beta + offset)
+    cov = np.linalg.inv(info)
+    if cluster_by_time:
+        # sandwich: suma wkladow do pochodnej wiarygodnosci w kazdej godzinie
+        g = pd.factorize(panel["time"])[0]
+        G = sp.csr_matrix((np.ones(len(g)), (g, np.arange(len(g)))))
+        S = (G @ X.multiply(((y - mu) / (1 + alpha * mu))[:, None]).tocsr()).toarray()
+        n, k, ng = X.shape[0], X.shape[1], G.shape[0]
+        cov = ng / (ng - 1) * (n - 1) / (n - k) * cov @ (S.T @ S) @ cov
+    names = [f"st:{b}" for b in levels[0]] + [f"h:{h}" for h in levels[1]] + list(terms)
+    params = pd.Series(beta, index=names)
+    bse = pd.Series(np.sqrt(np.diag(cov)), index=names)
+    return NBFit(params, bse, pd.Series(2 * stats.norm.sf(np.abs(params / bse)), index=names),
+                 float(sm.families.NegativeBinomial(alpha=alpha).loglike(y, mu)), alpha, levels, list(terms),
+                 (panel["temp"].min(), panel["temp"].max()))
 
 
 class DemandModel:
@@ -120,18 +193,16 @@ class DemandModel:
     def __init__(self, fit, stations):
         self.alpha = fit.nb_alpha
         self.params = fit.params
-        self.formula = fit.model.formula
+        self.levels, self.terms, self.temp_range = fit.levels, fit.terms, fit.temp_range
+        self.own = set(fit.levels[0])
+        self.known = {b.split("|")[0] for b in self.own}
         self.near_uni = near_university(stations)
-        frame = fit.model.data.frame
-        self.known = set(frame["station_id"])
-        self.own = set(frame["station_block"])
-        # po jednym wierszu na kazda kategorie: z nimi patsy odtworzy te same kolumny co przy dopasowaniu
-        self.template = pd.concat([frame.drop_duplicates("station_block"), frame.drop_duplicates("hour_type")])
 
     def predict(self, q):
-        rhs = self.formula.split("~", 1)[1]
-        X = patsy.dmatrix(rhs, pd.concat([self.template, q]), return_type="dataframe").iloc[len(self.template):]
-        return np.exp(X[self.params.index].to_numpy() @ self.params.to_numpy())
+        """Oczekiwane wypozyczenia na godzine pelnej dostepnosci dla wierszy z context_terms + station_id."""
+        temp = q["temp"].clip(*self.temp_range)
+        q = add_station_terms(q.assign(temp=temp, temp2=temp ** 2), self.near_uni, self.own)
+        return np.exp(design(q, self.levels, self.terms) @ self.params.to_numpy())
 
     def rate(self, station_ids, ctx):
         c = context_terms(ctx.reset_index(drop=True))
@@ -139,7 +210,7 @@ class DemandModel:
         p["station_id"] = np.tile(np.asarray(station_ids), len(c))
         known = p["station_id"].isin(self.known).to_numpy()
         out = np.zeros(len(p))
-        out[known] = self.predict(add_station_terms(p[known], self.near_uni, self.own))
+        out[known] = self.predict(p[known])
         return out.reshape(len(c), len(station_ids))
 
 

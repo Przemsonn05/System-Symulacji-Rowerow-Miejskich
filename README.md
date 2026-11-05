@@ -122,15 +122,14 @@ Jedno polecenie buduje modele, kalibruje je, sprawdza na dniach, których model 
 
 | Plik (`src/model/`) | Co robi |
 |---|---|
-| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę (własny poziom każdej stacji w każdej porze dnia, godzina × typ dnia, pogoda, zmrok, kalendarz uczelni, korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. |
+| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę: własny poziom każdej stacji w każdej porze dnia, godzina × typ dnia oraz 3 czynniki wybrane na danych (temperatura z członem kwadratowym, przycięta do zakresu danych, i korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. Pełny model ze wszystkimi czynnikami służy tylko do hipotez. |
 | `od.py` | **cel podróży**: macierz OD z przejazdów + model grawitacyjny (popularność celu × e^(−β·km)); w symulacji macierz wygładzona grawitacją |
 | `duration.py` | **czas jazdy**: log-normalny zależny od odległości, osobno powroty na tę samą stację; czas z danych jako przedział ±5 min |
-| `simulation.py` | **referencyjna symulacja** (stacje, klienci, relokacje operatora z danych) do kalibracji i walidacji, dopóki nie ma pełnej `run_simulation()`. Reguły klienta: przy pustej stacji idzie do sąsiedniej (`p_walk`, `radius_m`) albo rezygnuje (utracony popyt); przy przepełnionej czasem odjeżdża do sąsiedniej (`overflow_k`). |
-| `calibration.py` | **kalibracja** Optuną parametrów klienta i **walidacja**: symulacja doba po dobie od stanu z północy, metryki, modele bazowe (persystencja, średnia historyczna, stan z północy) |
+| `calibration.py` | **kalibracja** Optuną parametrów klienta (`empty_retry_probability`, `max_walk_km`, `full_redirect_probability`) i **walidacja** w symulacji `src/simulation`: doba po dobie od stanu z północy, przewozy operatora z danych, metryki, modele bazowe (persystencja, średnia historyczna, stan z północy) |
 | `hypotheses.py` | **H1, H4, H5a**: współczynniki z 95% CI (błędy klastrowane po godzinie), test LR członu T² |
 | `pipeline.py` | cały łańcuch jednym poleceniem |
 
-Wyniki dla symulacji (Osoba 3): `processed/model/demand_model.pkl`, `od_model.pkl`, `duration_model.pkl` (dopasowane na wszystkich dniach) i `sim_params.json` (skalibrowane parametry klienta). Użycie: `pickle.load(...)`, potem `demand.rate(station_ids, context_rows)` → λ na godzinę, `od.probs(slot)` → P(cel | start), `duration.sample(km, rng)`.
+Wyniki dla symulacji (Osoba 3): `processed/model/demand_model.pkl`, `od_model.pkl`, `duration_model.pkl` (dopasowane na wszystkich dniach) i `sim_params.json` (skalibrowane parametry klienta). W symulacji: `od_model` jako `od_matrix` (OD zależne od pory dnia), `duration_model` jako `ride_time_model` z `ride_sigma` z `sim_params.json`, λ z `demand.rate(station_ids, context_rows)` (przykład: `HourlyRates` w `src/model/calibration.py`).
 
 ## Notebooki – co już przeanalizowaliśmy
 
@@ -311,7 +310,7 @@ src/data/                   przygotowanie danych
   context.py                kontekst godzinowy (pogoda, słońce, kalendarz, wydarzenia, korki)
   features.py               opis otoczenia stacji
   config.py                 ścieżki i stałe
-src/model/                  modele zachowań, symulacja referencyjna, kalibracja, walidacja, hipotezy
+src/model/                  modele zachowań, kalibracja, walidacja, hipotezy
 src/viz/export.py           przygotowanie danych dla wizualizacji 3D
 
 notebooks/                  analizy (opis wyżej)

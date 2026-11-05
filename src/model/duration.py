@@ -57,6 +57,13 @@ class DurationModel:
             out[rt] = np.exp(self.round_mu + self.round_sigma * rng.standard_normal(rt.sum()))
         return out
 
+    def mean_minutes(self, km):
+        """Sredni czas jazdy (interfejs symulacji src/simulation: mnozony przez losowy czynnik
+        log-normalny o sredniej 1 i odchyleniu ride_sigma = self.sigma)."""
+        if km <= 0.05:
+            return float(np.exp(self.round_mu + self.round_sigma ** 2 / 2))
+        return float(np.exp(self.mu(km) + self.sigma ** 2 / 2))
+
     def _check(self, ride, d):
         """Udzial przejazdow <= 20 min (darmowe) w danych vs w modelu; mediany czasu."""
         rng = np.random.default_rng(0)

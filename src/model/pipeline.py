@@ -7,26 +7,31 @@
 
 Wynik (processed/model/):
   demand_model.pkl, od_model.pkl, duration_model.pkl   modele dopasowane na wszystkich dniach (dla Osoby 3)
-  sim_params.json                                      skalibrowane parametry klienta
+  sim_params.json                                      skalibrowane parametry klienta (nazwy jak w SimulationParams)
   results.pkl                                          wszystko do notebooka notebooks/modele_walidacja.ipynb
 """
 
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import time
 
-import numpy as np
+# Limit watkow obliczen numerycznych (ustawiany przed importem numpy), zeby pipeline nie zajmowal
+# calego komputera; mozna nadpisac zmienna srodowiskowa.
+for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
+    os.environ.setdefault(_var, "4")
+
+import numpy as np  # noqa: E402
 
 from . import hypotheses
-from .calibration import baselines, calibrate, load_observed, metrics, od_cpc, simulate
+from .calibration import OPERATOR_TRUCKS, Setup, baselines, calibrate, load_observed, metrics, od_cpc, simulate
 from .data import CALIB, OUT, VALID, context_filled, days, load, save, sim_station_ids, user_trips
 from .demand import build_panel, fit_demand
 from .duration import DurationModel
 from .od import OdModel
-from .simulation import Models
 
 T0 = time.time()
 
@@ -83,17 +88,17 @@ def main():
     R["duration"] = {"params": du.params(), "check": du.check}
     log(f"   popyt: alpha={dm.alpha:.3f}; OD: beta={om.beta:.3f}/km; czas jazdy sigma={du.sigma:.3f}")
 
-    models = Models(dm, om, du, stations)
-    obs = load_observed(ids, ctx)
+    log("   siec drog i dane dni dla symulacji (src/simulation)...")
+    setup = Setup(dm, om, du, stations, load_observed(ids, ctx))
     log(f"2/4 Kalibracja: {a.trials} prob x {a.reps} replikacje x {len(calib_days)} dni...")
-    best, study = calibrate(models, calib_days, obs, n_trials=a.trials, n_reps=a.reps, log=log)
-    R["calibration"] = {"params": best.as_dict(), "trials": study.trials_dataframe(), "n_reps": a.reps}
-    log(f"   najlepsze: {json.dumps({k: round(v, 3) for k, v in best.as_dict().items()})}")
+    best, study = calibrate(setup, calib_days, n_trials=a.trials, n_reps=a.reps, log=log)
+    R["calibration"] = {"params": best, "trials": study.trials_dataframe(), "n_reps": a.reps}
+    log(f"   najlepsze: {json.dumps({k: round(v, 3) for k, v in best.items()})}")
 
     log(f"3/4 Walidacja na {valid_days[0]} – {valid_days[-1]} ({a.valid_reps} replikacji)...")
-    s = simulate(models, best, valid_days, obs, n_reps=a.valid_reps, seed0=10_000)
-    R["validation"] = {"metrics": metrics(s) | {"od_cpc": od_cpc(s, trips, models, stations)},
-                       "baselines": baselines(s, obs, calib_days), "station_ids": ids,
+    s = simulate(setup, best, valid_days, n_reps=a.valid_reps, seed0=10_000)
+    R["validation"] = {"metrics": metrics(s) | {"od_cpc": od_cpc(s, trips, setup, stations)},
+                       "baselines": baselines(s, setup.obs, calib_days), "station_ids": ids,
                        "sim": s | {"occ_sim": s["occ_sim"].astype(np.int16)}}
     log(f"   RMSE zapelnienia {R['validation']['metrics']['rmse_occ']:.2f} "
         f"(bazowe: {R['validation']['baselines']['rmse_occ'].min():.2f})")
@@ -107,7 +112,8 @@ def main():
     save(omf, "od_model.pkl")
     save(duf, "duration_model.pkl")
     (OUT / "sim_params.json").write_text(json.dumps({
-        "agent": best.as_dict(), "calibration_days": [str(d) for d in calib_days],
+        "agent": best, "ride_sigma": duf.sigma, "operator_trucks_in_validation": OPERATOR_TRUCKS,
+        "calibration_days": [str(d) for d in calib_days],
         "fit_days": [str(d) for d in all_days]}, indent=2))
     save(R, "results.pkl")
     log(f"Gotowe: {OUT}; raport: notebooks/modele_walidacja.ipynb")

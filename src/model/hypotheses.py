@@ -1,4 +1,7 @@
-"""Testy hipotez H1, H4, H5a na modelu popytu (wszystkie dostepne dni, nie tylko kalibracyjne).
+"""Testy hipotez H1, H4, H5a na pelnym modelu popytu (TERMS_FULL: wszystkie czynniki, wszystkie dni).
+
+Model do symulacji ma tylko 3 czynniki zewnetrzne (najlepsza prognoza), ale hipotezy pytaja, czy dany
+efekt istnieje, wiec tu kazdy czynnik jest w modelu.
 
 Wspolczynniki raportowane jako ilorazy intensywnosci (IRR = exp(b)) z 95% CI. Bledy standardowe sa
 odporne i klastrowane po godzinie: pogoda, korki i kalendarz sa wspolne dla wszystkich stacji w danej
@@ -10,7 +13,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats
 
-from .demand import FORMULA, T_REF, T_SCALE, build_panel, fit_nb
+from .demand import TERMS_FULL, T_REF, T_SCALE, build_panel, fit_nb
 
 COEFS = ["rain", "temp", "temp2", "dark", "classes_near_uni", "congestion", "saturday"]
 
@@ -18,12 +21,12 @@ COEFS = ["rain", "temp", "temp2", "dark", "classes_near_uni", "congestion", "sat
 def run(days, log=print):
     panel = build_panel(days)
     log("  model pelny (bledy klastrowane po godzinie)...")
-    full = fit_nb(panel, FORMULA, cluster_by_time=True)
+    full = fit_nb(panel, TERMS_FULL, cluster_by_time=True)
     b, se = full.params[COEFS], full.bse[COEFS]
     coef = pd.DataFrame({"b": b, "IRR": np.exp(b), "CI_lo": np.exp(b - 1.96 * se), "CI_hi": np.exp(b + 1.96 * se),
                          "p": full.pvalues[COEFS]})
     log("  test LR czlonu T^2...")
-    restricted = fit_nb(panel, FORMULA.replace(" + temp2", ""))
+    restricted = fit_nb(panel, [t for t in TERMS_FULL if t != "temp2"])
     lr = 2 * (full.llf - restricted.llf)
     w = panel.drop_duplicates("time")
     return {
