@@ -1,7 +1,7 @@
 """Model popytu: regresja ujemna dwumianowa liczby wypozyczen na stacje x godzine.
 
 Model do symulacji (TERMS):
-  log lambda_i(t) = alpha_{i,blok} + s_{h,d} + b_T T + b_T2 T^2 + b_cong cong
+  log lambda_i(t) = alpha_{i,blok} + gamma_{h,d} + b_T T + b_T2 T^2 + b_cong cong
 
 Te 3 czynniki zewnetrzne wybrane na danych: najlepiej przewidywaly tydzien walidacji (lepiej niz
 wszystkie 7). Pelny model do testow hipotez (TERMS_FULL) ma dodatkowo opad, zmrok,
@@ -14,7 +14,7 @@ to prawie same zera, a gesta macierz w statsmodels zajmowala > 12 GB pamieci juz
   wieczor), wiec kazda stacja ma wlasny ksztalt doby (np. osiedle rano, centrum po poludniu);
   bloki z < MIN_BLOCK_DEPARTURES wypozyczen (zwykle noc) dziela wspolny poziom "reszta" stacji,
   bo przy zerze wypozyczen poziom bloku nie ma skonczonej wartosci,
-- s_{h,d}: wspolny profil godzinowy w dni robocze i weekendy (ksztalt wewnatrz bloku),
+- gamma_{h,d}: wspolny profil godzinowy w dni robocze i weekendy (ksztalt wewnatrz bloku),
 - temperatura w prognozie jest przycinana do zakresu z danych do dopasowania: parabola oszacowana
   na 1-14 st. C poza tym zakresem rosnie bez sensu (25 st. C dawaloby x21),
 - offset log(minuty z rowerem / 60): popyt na godzine, w ktorej stacja miala rowery (godziny pustej

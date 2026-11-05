@@ -122,7 +122,7 @@ Jedno polecenie buduje modele, kalibruje je, sprawdza na dniach, których model 
 
 | Plik (`src/model/`) | Co robi |
 |---|---|
-| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę: własny poziom każdej stacji w każdej porze dnia, godzina × typ dnia oraz 3 czynniki wybrane na danych (temperatura z członem kwadratowym, przycięta do zakresu danych, i korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. Pełny model ze wszystkimi czynnikami służy tylko do hipotez. |
+| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę: własny poziom każdej stacji w każdej porze dnia, wspólny profil godzinowy osobno dla dni roboczych i weekendów oraz 3 czynniki wybrane na danych (temperatura z członem kwadratowym, przycięta do zakresu danych, i korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. Pełny model ze wszystkimi czynnikami służy tylko do hipotez. |
 | `od.py` | **cel podróży**: macierz OD z przejazdów + model grawitacyjny (popularność celu × e^(−β·km)); w symulacji macierz wygładzona grawitacją |
 | `duration.py` | **czas jazdy**: log-normalny zależny od odległości, osobno powroty na tę samą stację; czas z danych jako przedział ±5 min |
 | `calibration.py` | **kalibracja** Optuną parametrów klienta (`empty_retry_probability`, `max_walk_km`, `full_redirect_probability`) i **walidacja** w symulacji `src/simulation`: doba po dobie od stanu z północy, przewozy operatora z danych, metryki, modele bazowe (persystencja, średnia historyczna, stan z północy) |
