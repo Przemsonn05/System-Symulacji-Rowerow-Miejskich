@@ -3,6 +3,9 @@
 //
 // Tryb zrzutow (raport, test bez klikania): aplikacja uruchomiona z argumentem
 //   -vtShots <folder>   zapisuje serie zrzutow ekranu (rozne godziny, widoki, warstwy) i sie zamyka.
+//
+// Porownania (podzielony ekran): X - dzien rzeczywisty | symulacja tego dnia (albo inny dzien),
+// Z - do 4 strategii relokacji obok siebie (przebiegi symulacji tej samej daty), N - glowny widok: dane / model.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -16,13 +19,16 @@ namespace Veturilo.Viz
         /// Tworz scene automatycznie po nacisnieciu Play (pusta scena wystarczy).
         public static bool AutoStart = true;
 
-        /// Warstwy Unity: obiekty dnia A widzi tylko lewa kamera, dnia B tylko prawa (porownanie dni).
-        public const int LayerA = 8, LayerB = 9;
+        /// Warstwy Unity: obiekty glownego widoku (A) widzi tylko glowna kamera, kazdy dodatkowy panel
+        /// porownania ma swoja warstwe (B, C, D) i swoja kamere.
+        public const int LayerA = 8, LayerB = 9, LayerC = 10, LayerD = 11;
+        static readonly int[] PanelLayers = { LayerB, LayerC, LayerD };
 
         public static readonly string[] LayerNames =
         {
             "Budynki", "Mapa", "Drogi rower.", "Ślady", "Ślady dnia", "Łuki OD",
             "Utracony popyt", "Korki", "Mieszkańcy", "Ciężarówki", "Opisy", "Poza stacją", "Efekty",
+            "Agenci", "Fale pustek", "Ciśnienie", "Dyspozytor",
         };
 
         [Header("Start")]
@@ -41,6 +47,9 @@ namespace Veturilo.Viz
         public ContextLayer Context { get; private set; }
         public DayTrailLayer Trails { get; private set; }
         public LostDemandLayer Lost { get; private set; }
+        public AgentLayer Agents { get; private set; }
+        public CascadeLayer Cascades { get; private set; }
+        public PressureLayer Pressure { get; private set; }
         public EnvironmentFx Env { get; private set; }
         public PostFx Post { get; private set; }
         public PlanarReflection Reflection { get; private set; }
@@ -52,15 +61,32 @@ namespace Veturilo.Viz
         public float Speed { get; private set; } = 300f;
         public bool TourRunning => tour != null && tour.Running;
 
-        // porownanie dwoch dni (podzielony ekran)
-        public bool Comparing { get; private set; }
-        public DataStore DataB { get; private set; }
-        public StationLayer StationsB { get; private set; }
-        public BikeLayer BikesB { get; private set; }
-        public TruckLayer TrucksB { get; private set; }
-        public float TimeB { get; private set; }
-        GameObject worldB;
-        Camera camB;
+        // porownanie (podzielony ekran): panele dodatkowe B, C, D
+        public class Panel
+        {
+            public DataStore Data;
+            public StationLayer Stations;
+            public BikeLayer Bikes;
+            public TruckLayer Trucks;
+            public AgentLayer Agents;
+            public CascadeLayer Cascades;
+            public PressureLayer Pressure;
+            public GameObject World;
+            public Camera Cam;
+            public int Layer;
+            public float Time;
+        }
+
+        public enum CompareMode { None, Pair, Strategies }
+        public CompareMode Mode { get; private set; } = CompareMode.None;
+        public bool Comparing => Mode != CompareMode.None;
+        public readonly List<Panel> Panels = new List<Panel>();   // aktywne panele dodatkowe (bez glownego)
+        readonly List<Panel> panelPool = new List<Panel>();
+        int restoreEntry = -1;                                      // wpis glownego widoku sprzed trybu strategii
+        // zgodnosc ze starszym kodem (Hud, pokaz): pierwszy panel dodatkowy
+        public DataStore DataB => Panels.Count > 0 ? Panels[0].Data : null;
+        public BikeLayer BikesB => Panels.Count > 0 ? Panels[0].Bikes : null;
+        public float TimeB => Panels.Count > 0 ? Panels[0].Time : 0;
 
         // sledzenie roweru / ciezarowki
         public int FollowTrip { get; private set; } = -1;
@@ -118,6 +144,13 @@ namespace Veturilo.Viz
             Lost = Layer<LostDemandLayer>("LostDemand", world, LayerA);
             Lost.Init(Data);
             Lost.gameObject.SetActive(false);
+            Agents = Layer<AgentLayer>("Agents", world, LayerA);
+            Agents.Init(Data);
+            Cascades = Layer<CascadeLayer>("Cascades", world, LayerA);
+            Cascades.Init(Data);
+            Pressure = Layer<PressureLayer>("Pressure", world, LayerA);
+            Pressure.Init(Data);
+            Pressure.gameObject.SetActive(false);
 
             Context = new GameObject("Context").AddComponent<ContextLayer>();
             Context.transform.SetParent(world, false);
@@ -165,21 +198,26 @@ namespace Veturilo.Viz
             cam.fieldOfView = 50f;
             cam.allowHDR = true;
             cam.allowMSAA = true;
-            cam.cullingMask = ~(1 << LayerB);
+            cam.cullingMask = ~((1 << LayerB) | (1 << LayerC) | (1 << LayerD));
             Rig = cam.GetComponent<CameraRig>();
             if (Rig == null) Rig = cam.gameObject.AddComponent<CameraRig>();
             View(1, instant: true);
         }
 
-        void LoadDay(int i, float time)
+        void LoadDay(int i, float time) => LoadEntry(i, time);
+
+        /// Glowny widok: wpis = dzien rzeczywisty (0..dni-1) albo przebieg symulacji (dni..).
+        void LoadEntry(int e, float time)
         {
-            if (!Data.LoadDay(i)) { Hud.ShowMessage(Data.Error); return; }
+            if (!Data.LoadEntry(e)) { Hud.ShowCaption(Data.Error, 5f); return; }
             StopFollow();
             Bikes.OnDayLoaded();
             Trucks.OnDayLoaded();
             Flows.OnDayLoaded();
             Trails.OnDayLoaded();
             Lost.OnDayLoaded();
+            Agents.OnDayLoaded();
+            Pressure.OnDayLoaded();
             Context.OnDayLoaded();
             Hud.OnDayLoaded(Data);
             t = Mathf.Clamp(time, 0, Data.Day.lengthSec - 1);
@@ -197,9 +235,9 @@ namespace Veturilo.Viz
                 t += Time.unscaledDeltaTime * Speed;
                 if (t >= Data.Day.lengthSec)
                 {
-                    // koniec dnia: nastepny dzien (albo od poczatku, jesli to ostatni)
-                    int next = Data.DayIndex + 1 < Data.Index.days.Length ? Data.DayIndex + 1 : 0;
-                    LoadDay(next, 0);
+                    // koniec dnia: nastepny dzien (albo od poczatku); symulacja i porownanie - ten sam dzien od nowa
+                    if (Data.IsSim || Comparing) t = 0;
+                    else LoadDay(Data.DayIndex + 1 < Data.Index.days.Length ? Data.DayIndex + 1 : 0, 0);
                 }
             }
 
@@ -213,6 +251,9 @@ namespace Veturilo.Viz
             Flows.UpdateAt(t);
             Trails.UpdateAt(t);
             Lost.UpdateAt(t);
+            Agents.UpdateAt(t, Env.Night01);
+            Cascades.UpdateAt(t);
+            Pressure.UpdateAt(t);
             Context.UpdateAt(t);
             if (Comparing) UpdateCompare();
             tour.Update(t);
@@ -249,7 +290,7 @@ namespace Veturilo.Viz
             Stations.Hovered = null;
             if (Rig.MouseOverUi) return;
             var mp = InputCompat.MousePosition;
-            if (Comparing && mp.x > Screen.width * 0.5f) return;   // prawa polowa: tylko podglad
+            if (Comparing && !cam.pixelRect.Contains(mp)) return;   // panele dodatkowe: tylko podglad
             var ray = cam.ScreenPointToRay(mp);
             StationView hit = null; int trip = -1, truck = -1;
             if (Physics.Raycast(ray, out var info, 100000f, 1 << LayerA))
@@ -287,6 +328,12 @@ namespace Veturilo.Viz
             if (InputCompat.Down(K.V)) SetMode((ViewMode)(((int)Stations.Mode + 1) % 3));
             if (InputCompat.Down(K.T)) ToggleTour();
             if (InputCompat.Down(K.X)) ToggleCompare();
+            if (InputCompat.Down(K.Z)) ToggleStrategies();
+            if (InputCompat.Down(K.N)) ToggleModel();
+            if (InputCompat.Down(K.J)) ToggleLayer("Agenci");
+            if (InputCompat.Down(K.B)) ToggleLayer("Fale pustek");
+            if (InputCompat.Down(K.Y)) ToggleLayer("Ciśnienie");
+            if (InputCompat.Down(K.O)) ToggleLayer("Dyspozytor");
             if (InputCompat.Down(K.F)) ToggleLayer("Łuki OD");
             if (InputCompat.Down(K.G)) ToggleLayer("Ślady dnia");
             if (InputCompat.Down(K.U)) ToggleLayer("Utracony popyt");
@@ -371,7 +418,8 @@ namespace Veturilo.Viz
                 }
                 Rig.Track(p);
                 float left = Mathf.Max(0, tk.arr[i] - t) / 60f;
-                Hud.SetFollow($"<b>Ciężarówka operatora · {tk.n[i]} rowerów</b>\n" +
+                string who = Data.IsSim ? $"Ciężarówka {(tk.truck != null && tk.truck.Length > i ? tk.truck[i] + 1 : 1)} (model)" : "Ciężarówka operatora";
+                Hud.SetFollow($"<b>{who} · {tk.n[i]} rowerów</b>\n" +
                               $"{PlaceName(tk.fromSt[i])}  →  {PlaceName(tk.toSt[i])}\n" +
                               $"<color=#9aa3b0>relokacja · do celu {left:0} min · Esc – koniec</color>");
             }
@@ -379,84 +427,193 @@ namespace Veturilo.Viz
 
         string PlaceName(int st) => st >= 0 && st < Data.Stations.Length ? Data.Stations[st].name : "miejsce poza stacją";
 
-        // ------------------------------------------------------------------ porownanie dwoch dni
+        // ------------------------------------------------------------------ porownanie (podzielony ekran)
 
+        /// X: dzien rzeczywisty | symulacja tego dnia (gdy jest), inaczej dzien innego typu.
         public void ToggleCompare()
         {
             if (!ready) return;
-            if (Comparing) { ExitCompare(); return; }
+            if (Mode == CompareMode.Pair) { ExitCompare(); return; }
+            if (Mode == CompareMode.Strategies) ExitCompare();
             StopTour();
-            if (DataB == null)
-            {
-                DataB = new DataStore(Data);
-                worldB = new GameObject("WorldB") { layer = LayerB };
-                worldB.transform.SetParent(transform, false);
-                StationsB = Layer<StationLayer>("StationsB", worldB.transform, LayerB);
-                StationsB.Build(DataB);
-                BikesB = Layer<BikeLayer>("BikesB", worldB.transform, LayerB);
-                BikesB.Init(DataB);
-                TrucksB = Layer<TruckLayer>("TrucksB", worldB.transform, LayerB);
-                TrucksB.Init(DataB);
-                var go = new GameObject("CameraB");
-                camB = go.AddComponent<Camera>();
-                go.AddComponent<CameraMirror>().source = cam;
-                if (Post != null) PostFx.Enable(camB);
-            }
-            if (!LoadDayB(PickDayB())) return;
-            Comparing = true;
-            worldB.SetActive(true);
-            camB.enabled = true;
-            camB.cullingMask = ~(1 << LayerA);
-            cam.rect = new Rect(0, 0, 0.5f, 1);
-            camB.rect = new Rect(0.5f, 0, 0.5f, 1);
+            SetPanels(1);
+            if (!LoadPanel(Panels[0], PickEntryB())) { ExitCompare(); return; }
+            Mode = CompareMode.Pair;
+            Layout();
             Hud.SetCompare(true);
+        }
+
+        /// Z: do 4 strategii relokacji obok siebie (przebiegi symulacji tej samej daty, jak glowny dzien).
+        public void ToggleStrategies()
+        {
+            if (!ready) return;
+            if (Mode == CompareMode.Strategies) { ExitCompare(); return; }
+            if (Data.SimCount == 0) { Hud.ShowCaption("Brak symulacji – uruchom: python -m src.viz.export_sim ...", 5f); return; }
+            if (Mode == CompareMode.Pair) ExitCompare();
+            StopTour();
+            var sims = Data.SimsOfDate(Data.Day.date);
+            if (sims.Count == 0) sims = Data.SimsOfDate(Data.Index.sims[0].date);
+            if (sims.Count > 4) sims = sims.GetRange(0, 4);
+            float hour = Data.LocalHour(t);
+            restoreEntry = Data.EntryIndex;
+            LoadEntry(Data.Index.days.Length + sims[0], 0);
+            t = Data.TimeOfLocalHour(hour);
+            SetPanels(sims.Count - 1);
+            for (int k = 1; k < sims.Count; k++) LoadPanel(Panels[k - 1], Data.Index.days.Length + sims[k]);
+            Mode = sims.Count > 1 ? CompareMode.Strategies : CompareMode.None;
+            Layout();
+            Hud.SetCompare(Comparing);
+            if (!Comparing) Hud.ShowCaption("Tylko jeden przebieg symulacji dla tej daty – pokazuję go w głównym widoku.", 5f);
+        }
+
+        /// N: glowny widok przelacza sie miedzy dniem rzeczywistym i przebiegami symulacji tej samej daty.
+        public void ToggleModel()
+        {
+            if (!ready) return;
+            if (Mode == CompareMode.Strategies) ExitCompare();
+            var sims = Data.SimsOfDate(Data.Day.date);
+            if (sims.Count == 0 && Data.SimCount > 0 && !Data.IsSim) sims = Data.SimsOfDate(Data.Index.sims[0].date);
+            if (sims.Count == 0) { Hud.ShowCaption("Brak symulacji dla tego dnia – uruchom python -m src.viz.export_sim", 5f); return; }
+            float hour = Data.LocalHour(t);
+            int pos = Data.IsSim ? sims.IndexOf(Data.SimIndex) : -1;
+            if (pos + 1 < sims.Count) LoadEntry(Data.Index.days.Length + sims[pos + 1], 0);
+            else LoadEntry(Data.DayIndex >= 0 ? Data.DayIndex : Data.DefaultDay(), 0);
+            t = Data.TimeOfLocalHour(hour);
+            Hud.ShowCaption(Data.IsSim ? $"Model: {Data.SourceLabel.Replace("MODEL · ", "")} – N: kolejny przebieg / powrót do danych"
+                                       : "Dane rzeczywiste – N: model tego dnia", 3.5f);
         }
 
         void ExitCompare()
         {
-            Comparing = false;
-            if (worldB != null) worldB.SetActive(false);
-            if (camB != null) camB.enabled = false;
+            bool strategies = Mode == CompareMode.Strategies;
+            Mode = CompareMode.None;
+            SetPanels(0);
             cam.rect = new Rect(0, 0, 1, 1);
             Hud.SetCompare(false);
+            if (strategies && restoreEntry >= 0)
+            {
+                float hour = Data.LocalHour(t);
+                LoadEntry(restoreEntry, 0);
+                t = Data.TimeOfLocalHour(hour);
+            }
+            restoreEntry = -1;
         }
 
-        /// Dzien do porownania: dla dnia roboczego ostatni pelny dzien wolny, dla wolnego - ostatni pelny roboczy.
-        int PickDayB()
+        /// Ustawia liczbe aktywnych paneli dodatkowych (tworzy brakujace, wylacza nadmiarowe).
+        void SetPanels(int n)
         {
-            var days = Data.Index.days;
-            bool workA = days[Data.DayIndex].dayType == "workday";
-            for (int i = days.Length - 1; i >= 0; i--)
-                if (i != Data.DayIndex && days[i].coverage >= 0.95f && (days[i].dayType == "workday") != workA) return i;
-            return (Data.DayIndex + 1) % days.Length;
+            while (panelPool.Count < n) panelPool.Add(CreatePanel(PanelLayers[panelPool.Count]));
+            Panels.Clear();
+            for (int k = 0; k < panelPool.Count; k++)
+            {
+                bool on = k < n;
+                panelPool[k].World.SetActive(on);
+                panelPool[k].Cam.enabled = on;
+                if (on) Panels.Add(panelPool[k]);
+            }
         }
 
-        bool LoadDayB(int i)
+        Panel CreatePanel(int layer)
         {
-            if (!DataB.LoadDay(i)) { Hud.ShowCaption(DataB.Error, 5f); return false; }
-            BikesB.OnDayLoaded();
-            TrucksB.OnDayLoaded();
+            var p = new Panel { Layer = layer, Data = new DataStore(Data) };
+            p.World = new GameObject("World" + layer) { layer = layer };
+            p.World.transform.SetParent(transform, false);
+            p.Stations = Layer<StationLayer>("Stations", p.World.transform, layer);
+            p.Stations.Build(p.Data);
+            p.Bikes = Layer<BikeLayer>("Bikes", p.World.transform, layer);
+            p.Bikes.Init(p.Data);
+            p.Trucks = Layer<TruckLayer>("Trucks", p.World.transform, layer);
+            p.Trucks.Init(p.Data);
+            p.Agents = Layer<AgentLayer>("Agents", p.World.transform, layer);
+            p.Agents.Init(p.Data);
+            p.Cascades = Layer<CascadeLayer>("Cascades", p.World.transform, layer);
+            p.Cascades.Init(p.Data);
+            p.Pressure = Layer<PressureLayer>("Pressure", p.World.transform, layer);
+            p.Pressure.Init(p.Data);
+            var go = new GameObject("Camera" + layer);
+            p.Cam = go.AddComponent<Camera>();
+            go.AddComponent<CameraMirror>().source = cam;
+            int others = 0;
+            foreach (var l in PanelLayers) if (l != layer) others |= 1 << l;
+            p.Cam.cullingMask = ~((1 << LayerA) | others);
+            if (Post != null) PostFx.Enable(p.Cam);
+            return p;
+        }
+
+        bool LoadPanel(Panel p, int entry)
+        {
+            if (!p.Data.LoadEntry(entry)) { Hud.ShowCaption(p.Data.Error, 5f); return false; }
+            p.Bikes.OnDayLoaded();
+            p.Trucks.OnDayLoaded();
+            p.Agents.OnDayLoaded();
+            p.Pressure.OnDayLoaded();
             return true;
+        }
+
+        /// Uklad ekranu: 2 panele obok siebie, 3 w kolumnach, 4 w cwiartkach (glowny zawsze lewy / lewy gorny).
+        void Layout()
+        {
+            int n = Panels.Count + 1;
+            var rects = n == 2 ? new[] { new Rect(0, 0, 0.5f, 1), new Rect(0.5f, 0, 0.5f, 1) }
+                      : n == 3 ? new[] { new Rect(0, 0, 1 / 3f, 1), new Rect(1 / 3f, 0, 1 / 3f, 1), new Rect(2 / 3f, 0, 1 / 3f, 1) }
+                      : n == 4 ? new[] { new Rect(0, 0.5f, 0.5f, 0.5f), new Rect(0.5f, 0.5f, 0.5f, 0.5f), new Rect(0, 0, 0.5f, 0.5f), new Rect(0.5f, 0, 0.5f, 0.5f) }
+                      : new[] { new Rect(0, 0, 1, 1) };
+            cam.rect = rects[0];
+            for (int k = 0; k < Panels.Count; k++) Panels[k].Cam.rect = rects[k + 1];
+        }
+
+        public Rect ViewRect(int k) => k == 0 ? cam.rect : Panels[k - 1].Cam.rect;
+
+        /// Wpis do porownania: symulacja tego dnia (najpierw odtworzenie operatora), inaczej dzien innego typu.
+        int PickEntryB()
+        {
+            if (!Data.IsSim)
+            {
+                var sims = Data.SimsOfDate(Data.Day.date);
+                if (sims.Count > 0)
+                {
+                    int best = sims[0];
+                    foreach (var i in sims) if (Data.Index.sims[i].scenario == "operator") { best = i; break; }
+                    return Data.Index.days.Length + best;
+                }
+            }
+            var days = Data.Index.days;
+            int cur = Data.DayIndex >= 0 ? Data.DayIndex : 0;
+            bool workA = days[cur].dayType == "workday";
+            for (int i = days.Length - 1; i >= 0; i--)
+                if (i != cur && days[i].coverage >= 0.95f && (days[i].dayType == "workday") != workA) return i;
+            return (cur + 1) % days.Length;
         }
 
         public void ChangeDayB(int delta)
         {
-            if (!Comparing) return;
-            int n = Data.Index.days.Length;
-            LoadDayB(((DataB.DayIndex + delta) % n + n) % n);
+            if (Mode != CompareMode.Pair) return;
+            int n = Data.EntryCount;
+            LoadPanel(Panels[0], ((Panels[0].Data.EntryIndex + delta) % n + n) % n);
         }
 
         void UpdateCompare()
         {
-            // ta sama godzina lokalna w obu dniach (dzien zmiany czasu ma 25 h)
-            TimeB = DataB.TimeOfLocalHour(Data.LocalHour(t));
-            StationsB.Mode = Stations.Mode;
-            StationsB.UpdateAt(TimeB, Env.Night01);
-            BikesB.showTrails = Bikes.showTrails;
-            BikesB.showLoose = Bikes.showLoose;
-            BikesB.UpdateAt(TimeB, Playing ? Speed : 1f, Playing);
-            TrucksB.gameObject.SetActive(Trucks.gameObject.activeSelf);
-            TrucksB.UpdateAt(TimeB);
+            float hour = Data.LocalHour(t);
+            foreach (var p in Panels)
+            {
+                // ta sama godzina lokalna we wszystkich panelach (dzien zmiany czasu ma 25 h)
+                p.Time = p.Data.TimeOfLocalHour(hour);
+                p.Stations.Mode = Stations.Mode;
+                p.Stations.UpdateAt(p.Time, Env.Night01);
+                p.Bikes.showTrails = Bikes.showTrails;
+                p.Bikes.showLoose = Bikes.showLoose;
+                p.Bikes.UpdateAt(p.Time, Playing ? Speed : 1f, Playing);
+                p.Trucks.gameObject.SetActive(Trucks.gameObject.activeSelf);
+                p.Trucks.UpdateAt(p.Time);
+                p.Agents.showPeople = Agents.showPeople;
+                p.Agents.showDispatch = Agents.showDispatch;
+                p.Agents.UpdateAt(p.Time, Env.Night01);
+                p.Cascades.gameObject.SetActive(Cascades.gameObject.activeSelf);
+                p.Cascades.UpdateAt(p.Time);
+                p.Pressure.gameObject.SetActive(Pressure.gameObject.activeSelf);
+                p.Pressure.UpdateAt(p.Time);
+            }
         }
 
         // ------------------------------------------------------------------ akcje UI
@@ -470,8 +627,13 @@ namespace Veturilo.Viz
         public void ChangeDay(int delta)
         {
             if (!ready) return;
+            if (Mode == CompareMode.Strategies) ExitCompare();
             int n = Data.Index.days.Length;
-            LoadDay(((Data.DayIndex + delta) % n + n) % n, t);
+            int cur = Data.DayIndex >= 0 ? Data.DayIndex : Data.DefaultDay();
+            float hour = Data.LocalHour(t);
+            LoadDay(((cur + delta) % n + n) % n, 0);
+            t = Data.TimeOfLocalHour(hour);
+            if (Mode == CompareMode.Pair) LoadPanel(Panels[0], PickEntryB());
         }
 
         public void SetMode(ViewMode m) { if (ready) Stations.Mode = m; }
@@ -504,6 +666,10 @@ namespace Veturilo.Viz
                 case "Opisy": return city.Pois.activeSelf;
                 case "Poza stacją": return Bikes.showLoose;
                 case "Efekty": return Post != null && Post.Active;
+                case "Agenci": return Agents.showPeople;
+                case "Fale pustek": return Cascades.gameObject.activeSelf;
+                case "Ciśnienie": return Pressure.gameObject.activeSelf;
+                case "Dyspozytor": return Agents.showDispatch;
                 default: return false;
             }
         }
@@ -532,6 +698,10 @@ namespace Veturilo.Viz
                 case "Ciężarówki": Trucks.gameObject.SetActive(on); break;
                 case "Opisy": city.Pois.SetActive(on); break;
                 case "Poza stacją": Bikes.showLoose = on; break;
+                case "Agenci": Agents.showPeople = on; break;
+                case "Fale pustek": Cascades.gameObject.SetActive(on); break;
+                case "Ciśnienie": Pressure.gameObject.SetActive(on); if (on) Pressure.OnDayLoaded(); break;
+                case "Dyspozytor": Agents.showDispatch = on; break;
                 case "Efekty":
                     // bloom, SSAO i odbicia w wodzie - wylaczenie przyspiesza dzialanie na slabszym komputerze
                     if (Post == null) break;
@@ -570,9 +740,106 @@ namespace Veturilo.Viz
         }
 
         /// Seria zrzutow do raportu: kazde ujecie = godzina, kamera, widok stacji, warstwy.
+        /// Kadr: ustawia godzine (z rozbiegiem, zeby rowery mialy slady), czeka i zapisuje zrzut.
+        IEnumerator Shot(string dir, string name, float hour, float run = 1.5f)
+        {
+            t = Mathf.Clamp(Data.TimeOfLocalHour(hour) - 480f, 0, Data.Day.lengthSec - 1);
+            Speed = 320f; Playing = true;
+            yield return new WaitForSecondsRealtime(run);
+            Playing = false;
+            yield return new WaitForSecondsRealtime(0.3f);
+            yield return new WaitForEndOfFrame();
+            ScreenCapture.CaptureScreenshot(Path.Combine(dir, name + ".png"));
+            Debug.Log($"Veturilo: kadr {name} - {Data.SourceLabel}, fale {Cascades.Active} (linie {Cascades.DrawnLines}, pierscienie {Cascades.DrawnRings}), " +
+                      $"agenci czeka {Agents.Waiting} idzie {Agents.Walking} odchodzi {Agents.Leaving} zadania {Agents.ActiveTasks} (linie {Agents.DrawnLines}, poswiata {Agents.DrawnGlows})");
+            yield return new WaitForSecondsRealtime(0.5f);
+        }
+
+        /// Kadry modelu: dane | model, strategie, agenci, dyspozytor, cisnienie, fale pustek, pasek zdarzen.
+        IEnumerator SimShots(string dir)
+        {
+            int day = Data.DayIndex;
+            string date = Data.SimCount > 0 ? Data.Index.sims[0].date : Data.Day.date;
+            int real = Array.FindIndex(Data.Index.days, d => d.date == date);
+            if (real >= 0) LoadDay(real, 0);
+
+            // pasek zdarzen i fale pustek na danych
+            View(2, instant: true);
+            yield return Shot(dir, "26_pasek_zdarzen", 8.4f);
+            var c = Data.Day.cascades;
+            if (c?.len != null && c.len.Length > 0)
+            {
+                int best = 0;
+                for (int k = 1; k < c.len.Length; k++) if (c.len[k] > c.len[best]) best = k;
+                int a = c.start[best], n = c.len[best];
+                var center = Vector3.zero;
+                for (int i = 0; i < n; i++) { var s = Data.Stations[c.st[a + i]]; center += new Vector3(s.x, 0, s.z); }
+                center /= n;
+                Rig.Preset(center, 20f, 55f, 5200f, true);
+                yield return Shot(dir, "25_fale_pustek", Data.LocalHour(c.t[a + n - 1]) - 0.1f);
+            }
+            SetLayer("Ciśnienie", true);
+            View(3, instant: true);
+            yield return Shot(dir, "24_cisnienie", 8.6f);
+            SetLayer("Ciśnienie", false);
+
+            if (Data.SimCount > 0)
+            {
+                // dane | model tego dnia
+                View(2, instant: true);
+                ToggleCompare();
+                yield return Shot(dir, "20_dane_vs_model", 8.3f);
+                ToggleCompare();
+
+                // cztery strategie
+                View(1, instant: true);
+                ToggleStrategies();
+                yield return Shot(dir, "21_strategie", 17.6f, 2f);
+                if (Comparing) ExitCompare();
+
+                // agenci z bliska: stacja z najwieksza liczba rezygnacji wokol 8:15 (model bez relokacji)
+                LoadEntry(Data.Index.days.Length + 0, 0);
+                var ag = Data.Day.agents;
+                if (ag?.lostT != null && ag.lostT.Length > 0)
+                {
+                    float tt = Data.TimeOfLocalHour(8.25f);
+                    var count = new Dictionary<int, int>();
+                    for (int i = 0; i < ag.lostT.Length; i++)
+                        if (Mathf.Abs(ag.lostT[i] - tt) < 1800) count[ag.lostSt[i]] = count.TryGetValue(ag.lostSt[i], out var v) ? v + 1 : 1;
+                    int st = -1, bestN = 0;
+                    foreach (var kv in count) if (kv.Value > bestN) { bestN = kv.Value; st = kv.Key; }
+                    if (st >= 0)
+                    {
+                        var s = Data.Stations[st];
+                        Rig.Preset(new Vector3(s.x, 0, s.z), 30f, 38f, 650f, true);
+                        yield return Shot(dir, "22_agenci_blisko", 8.25f, 0.6f);
+                    }
+                }
+                // dyspozytor: przebieg z najwieksza liczba zadan
+                int disp = 0, most = -1;
+                for (int i = 0; i < Data.SimCount; i++)
+                {
+                    LoadEntry(Data.Index.days.Length + i, 0);
+                    int nTasks = Data.Day.agents?.taskT0?.Length ?? 0;
+                    if (nTasks > most) { most = nTasks; disp = i; }
+                }
+                LoadEntry(Data.Index.days.Length + disp, 0);
+                View(2, instant: true);
+                yield return Shot(dir, "23_dyspozytor", 9.2f);
+            }
+            if (day >= 0) LoadDay(day, 0);
+        }
+
         IEnumerator ShotSeries(string dir)
         {
             Directory.CreateDirectory(dir);
+            if (Arg("-vtShotsSet") == "sim")
+            {
+                yield return null;
+                yield return SimShots(dir);
+                Application.Quit();
+                yield break;
+            }
             var optional = new[] { "Łuki OD", "Mieszkańcy", "Ślady dnia", "Utracony popyt" };
             var shots = new (string name, float hour, int view, ViewMode mode, string[] layers)[]
             {
@@ -676,6 +943,8 @@ namespace Veturilo.Viz
             ScreenCapture.CaptureScreenshot(Path.Combine(dir, "12_porownanie_dni.png"));
             yield return new WaitForSecondsRealtime(0.5f);
             ToggleCompare();
+
+            yield return SimShots(dir);
 
             ToggleTour();
             yield return new WaitForSecondsRealtime(4f);

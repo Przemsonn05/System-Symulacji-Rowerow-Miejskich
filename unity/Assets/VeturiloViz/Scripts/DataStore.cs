@@ -61,7 +61,15 @@ namespace Veturilo.Viz
         public Route[] TruckRoutes { get; private set; }
         public DayFile Day { get; private set; }
         public int DayIndex { get; private set; } = -1;
+        /// Indeks przebiegu symulacji (Index.sims) albo -1, gdy wczytany jest dzien rzeczywisty.
+        public int SimIndex { get; private set; } = -1;
         public string Error { get; private set; }
+        public bool IsSim => Day != null && Day.source == "sim";
+        public int SimCount => Index?.sims?.Length ?? 0;
+
+        // trasy z danych (wspolne) i trasy symulacji (pary stacji spoza danych) - cache po nazwie pliku
+        Route[] defaultBikeRoutes, defaultTruckRoutes;
+        static readonly Dictionary<string, Route[]> routeCache = new Dictionary<string, Route[]>();
 
         // H2: koncentracja pustek (z share_empty calego okresu zbierania)
         public float[] EmptyRank { get; private set; }   // 0 = najczesciej pusta .. 1 = najrzadziej
@@ -81,7 +89,8 @@ namespace Veturilo.Viz
         {
             Root = shared.Root; Index = shared.Index; Stations = shared.Stations; City = shared.City;
             Basemap = shared.Basemap; Buildings = shared.Buildings;
-            BikeRoutes = shared.BikeRoutes; TruckRoutes = shared.TruckRoutes;
+            BikeRoutes = shared.defaultBikeRoutes ?? shared.BikeRoutes; TruckRoutes = shared.defaultTruckRoutes ?? shared.TruckRoutes;
+            defaultBikeRoutes = BikeRoutes; defaultTruckRoutes = TruckRoutes;
             EmptyRank = shared.EmptyRank; Top10Share = shared.Top10Share; Top20Share = shared.Top20Share;
             NeverEmptyShare = shared.NeverEmptyShare; Gini = shared.Gini;
         }
@@ -96,6 +105,7 @@ namespace Veturilo.Viz
                 City = Read<CityFile>("city.json");
                 BikeRoutes = ToRoutes(Read<RoutesFile>("routes.json").routes);
                 TruckRoutes = ToRoutes(Read<RoutesFile>("truck_routes.json").routes);
+                defaultBikeRoutes = BikeRoutes; defaultTruckRoutes = TruckRoutes;
                 if (Index.days == null || Index.days.Length == 0) throw new Exception("index.json nie zawiera dni");
             }
             catch (Exception e)
@@ -121,6 +131,8 @@ namespace Veturilo.Viz
             {
                 Day = Read<DayFile>(Index.days[i].file);
                 DayIndex = i;
+                SimIndex = -1;
+                BikeRoutes = defaultBikeRoutes; TruckRoutes = defaultTruckRoutes;
             }
             catch (Exception e)
             {
@@ -130,6 +142,59 @@ namespace Veturilo.Viz
             }
             IndexDay();
             return true;
+        }
+
+        /// Przebieg symulacji z Index.sims (ten sam format dnia + agenci). DayIndex = dzien rzeczywisty o tej dacie.
+        public bool LoadSim(int i)
+        {
+            if (SimCount == 0) { Error = "Brak symulacji – uruchom python -m src.viz.export_sim"; return false; }
+            i = Mathf.Clamp(i, 0, SimCount - 1);
+            var e = Index.sims[i];
+            try
+            {
+                var day = Read<DayFile>(e.file);
+                var bike = string.IsNullOrEmpty(day.routesFile) ? defaultBikeRoutes : RoutesOf(day.routesFile);
+                var truck = string.IsNullOrEmpty(day.truckRoutesFile) ? defaultTruckRoutes : RoutesOf(day.truckRoutesFile);
+                Day = day; BikeRoutes = bike; TruckRoutes = truck;
+                SimIndex = i;
+                DayIndex = Array.FindIndex(Index.days, d => d.date == e.date);
+            }
+            catch (Exception ex)
+            {
+                Error = $"Nie udało się wczytać symulacji {e.file}: {ex.Message}";
+                Debug.LogError(Error);
+                return false;
+            }
+            IndexDay();
+            return true;
+        }
+
+        /// Wpisy do wyboru w porownaniu: najpierw dni rzeczywiste, potem przebiegi symulacji.
+        public int EntryCount => Index.days.Length + SimCount;
+        public int EntryIndex => SimIndex >= 0 ? Index.days.Length + SimIndex : DayIndex;
+        public bool LoadEntry(int e) => e >= Index.days.Length ? LoadSim(e - Index.days.Length) : LoadDay(e);
+
+        /// Przebiegi symulacji danej daty (np. do porownania strategii).
+        public List<int> SimsOfDate(string date)
+        {
+            var list = new List<int>();
+            for (int i = 0; i < SimCount; i++) if (Index.sims[i].date == date) list.Add(i);
+            return list;
+        }
+
+        /// Krotki opis zrodla: "DANE · czw 05.11" albo "MODEL · strategia progowa, 2 ciężar.".
+        public string SourceLabel => IsSim ? "MODEL · " + (SimIndex >= 0 ? Index.sims[SimIndex].label : Day.scenarioLabel)
+                                           : "DANE · " + Day.label;
+
+        Route[] RoutesOf(string file)
+        {
+            string key = Root + "|" + file;
+            if (!routeCache.TryGetValue(key, out var r))
+            {
+                r = ToRoutes(Read<RoutesFile>(file).routes);
+                routeCache[key] = r;
+            }
+            return r;
         }
 
         /// Domyslny dzien: ostatni pelny dzien roboczy (najlepiej pokazuje szczyty), inaczej ostatni pelny.
@@ -204,6 +269,8 @@ namespace Veturilo.Viz
             if (lo?.slot != null)
                 for (int i = 0; i < lo.slot.Length; i++)
                     if (lo.slot[i] >= 0 && lo.slot[i] < slots) looseBySlot[lo.slot[i]].Add(i);
+
+            BuildTicker();
 
             int steps = Mathf.CeilToInt(Day.lengthSec / 1800f);
             incidentsByStep = new List<int>[steps];
@@ -294,10 +361,110 @@ namespace Veturilo.Viz
 
         public float TotalLostAt(float t)
         {
+            // symulacja: dokladna liczba klientow, ktorzy odeszli z niczym do chwili t
+            var lt = Day?.agents?.lostT;
+            if (IsSim && lt != null) return UpperBound(lt, t);
             if (!HasLost) return 0;
             float sum = 0;
             for (int i = 0; i < Stations.Length; i++) sum += LostAt(i, t);
             return sum;
+        }
+
+        public static int UpperBound(int[] sorted, float t)
+        {
+            int lo = 0, hi = sorted.Length;
+            while (lo < hi) { int mid = (lo + hi) >> 1; if (sorted[mid] <= t) lo = mid + 1; else hi = mid; }
+            return lo;
+        }
+
+        /// "Cisnienie" stacji: -1 brakuje rowerow .. 0 jak zwykle .. +1 za duzo. Z symulacji (kolumna pressure),
+        /// a bez niej: odchylenie od typowej liczby rowerow tej stacji (srednia z calego okresu), w polowach
+        /// pojemnosci; pusta stacja = -1. Na Veturilo 3.0 rowery ponad stojaki sa normalne, wiec samo
+        /// zapelnienie > 100% nie jest problemem - liczy sie zmiana wzgledem zwyklego stanu. NaN = brak danych.
+        public float PressureAt(int station, float t)
+        {
+            var s = Day.states[station];
+            if (s.p != null && s.p.Length > 0)
+            {
+                int k = SlotAt(t);
+                return k < s.p.Length ? s.p[k] / 100f : 0f;
+            }
+            float b = BikesAt(station, t, out _);
+            if (b < 0) return float.NaN;
+            if (b < 0.5f) return -1f;
+            var st = Stations[station];
+            float scale = Mathf.Max(st.cap * 0.5f, 4f);
+            return Mathf.Clamp((b - st.meanBikes) / scale, -1f, 1f);
+        }
+
+        // ---------------------------------------------------------------- pasek zdarzen
+
+        public struct TickerItem { public float t; public string text; public Color color; }
+        public readonly List<TickerItem> Ticker = new List<TickerItem>();
+
+        /// Zdarzenia do paska "na zywo": stacja pustoszeje, ciezarowka dowozi, fala pustek, klienci odchodza (model).
+        void BuildTicker()
+        {
+            Ticker.Clear();
+            int slots = SlotCount;
+            for (int s = 0; s < Stations.Length; s++)
+            {
+                var b = Day.states[s].b;
+                for (int k = 1; k < slots; k++)
+                    if (b[k] == 0 && b[k - 1] > 0)
+                        Ticker.Add(new TickerItem { t = k * Day.slotSec, text = $"stacja <b>{Short(s)}</b> pusta", color = Mats.Empty });
+            }
+            var tk = Day.trucks;
+            if (tk?.dep != null)
+                for (int i = 0; i < tk.dep.Length; i++)
+                {
+                    if (tk.n[i] <= 0) continue;
+                    string who = tk.truck != null && tk.truck.Length > i ? $"ciężarówka {tk.truck[i] + 1}" : "ciężarówka";
+                    Ticker.Add(new TickerItem { t = tk.dep[i], text = $"{who} zabrała {tk.n[i]} rowerów: {Short(tk.fromSt[i])}", color = Mats.Truck });
+                    Ticker.Add(new TickerItem { t = tk.arr[i], text = $"{who} przywiozła {tk.n[i]} rowerów: <b>{Short(tk.toSt[i])}</b>", color = Mats.Truck });
+                }
+            var c = Day.cascades;
+            if (c?.start != null)
+                for (int k = 0; k < c.start.Length; k++)
+                {
+                    int a = c.start[k], n = c.len[k];
+                    Ticker.Add(new TickerItem { t = c.t[a + Mathf.Min(2, n - 1)], text = $"fala pustek: {n} stacji wokół <b>{Short(c.st[a])}</b>",
+                                                color = Mats.Cascade });
+                }
+            var ag = Day.agents;
+            if (ag?.lostT != null)
+            {
+                var last = new Dictionary<int, int>();
+                for (int i = 0; i < ag.lostT.Length; i++)
+                {
+                    int s = ag.lostSt[i];
+                    bool recent = last.TryGetValue(s, out var prev) && ag.lostT[i] - prev < 1800;
+                    last[s] = ag.lostT[i];
+                    if (recent) continue;
+                    Ticker.Add(new TickerItem { t = ag.lostT[i], text = $"klienci odchodzą z niczym: <b>{Short(s)}</b>", color = Mats.Leaving });
+                }
+            }
+            Ticker.Sort((x, y) => x.t.CompareTo(y.t));
+        }
+
+        public string Short(int s)
+        {
+            if (s < 0 || s >= Stations.Length) return "poza stacją";
+            var n = Stations[s].name;
+            return n.Length > 30 ? n.Substring(0, 29) + "…" : n;
+        }
+
+        /// Ostatnie zdarzenia do chwili t (najnowsze pierwsze), nie starsze niz maxAge sekund czasu symulacji.
+        public void TickerAt(float t, float maxAge, int max, List<TickerItem> result)
+        {
+            result.Clear();
+            int lo = 0, hi = Ticker.Count;
+            while (lo < hi) { int mid = (lo + hi) >> 1; if (Ticker[mid].t <= t) lo = mid + 1; else hi = mid; }
+            for (int i = lo - 1; i >= 0 && result.Count < max; i--)
+            {
+                if (t - Ticker[i].t > maxAge) break;
+                result.Add(Ticker[i]);
+            }
         }
 
         /// Szacowany popyt stacji o tej godzinie [wypozyczenia / h przy dostepnych rowerach].

@@ -16,6 +16,7 @@ data/static/osm/*
 !data/static/osm/cycleways.parquet
 !data/static/osm/buildings_srodmiescie.parquet
 !data/static/osm/boundary.geojson
+!data/static/osm/districts.geojson
 # podklad mapy i policzone trasy do wizualizacji 3D (kilka MB) - zeby nie trzeba bylo pobierac OSM
 !data/static/osm/basemap.parquet
 !data/static/osm/buildings_warsaw.parquet

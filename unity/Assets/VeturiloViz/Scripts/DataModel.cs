@@ -12,6 +12,22 @@ namespace Veturilo.Viz
         public float originLon;
         public int slotSec;
         public DayEntry[] days;
+        public SimEntry[] sims;   // przebiegi symulacji DES (python -m src.viz.export_sim)
+    }
+
+    [Serializable] public class SimEntry
+    {
+        public string key;
+        public string date;
+        public string label;      // np. "strategia progowa, 2 ciężar."
+        public string file;
+        public string scenario;
+        public int trucks;
+        public int seed;
+        public int trips;
+        public float lost;
+        public float coverage;
+        public string dayType;
     }
 
     [Serializable] public class DayEntry
@@ -101,6 +117,16 @@ namespace Veturilo.Viz
         public int lengthSec;
         public int slotSec;
         public float coverage;
+        public string source;            // "observed" albo "sim"
+        public string scenario;          // symulacja: none / operator / threshold / ...
+        public string scenarioLabel;
+        public int nTrucks;
+        public int seed;
+        public SimKpi simKpi;
+        public string routesFile;        // symulacja: wlasne trasy (pary stacji spoza danych)
+        public string truckRoutesFile;
+        public Agents agents;
+        public Cascades cascades;
         public StationState[] states;
         public Kpi kpi;
         public Trips trips;
@@ -115,9 +141,36 @@ namespace Veturilo.Viz
 
     /// Szacowany utracony popyt: cum[stacja * steps + krok] - narastajaco od polnocy (co stepSec),
     /// rate[stacja * 24 + godzina] - popyt stacji [wypozyczenia / h, gdy sa rowery].
-    [Serializable] public class LostDemand { public int stepSec; public int steps; public float[] cum; public float[] rate; public float total; }
+    /// exact = 1: dokladne zdarzenia z symulacji (lost_demand), 0: szacunek z danych.
+    [Serializable] public class LostDemand { public int stepSec; public int steps; public float[] cum; public float[] rate; public float total; public int exact; }
 
-    [Serializable] public class StationState { public int[] b; public int[] e; }
+    /// b - rowery, e - e-rowery (-1 = brak danych), p - "cisnienie" stacji x100 (-100 brak rowerow .. 100 nadmiar; opcjonalne).
+    [Serializable] public class StationState { public int[] b; public int[] e; public int[] p; }
+
+    [Serializable] public class SimKpi
+    {
+        public float requests;
+        public float rentals;
+        public float lost_demand;
+        public float lost_share;
+        public float truck_km;
+        public float relocated_bikes;
+        public float empty_station_share;
+    }
+
+    /// Agenci z symulacji (czasy w sekundach od lokalnej polnocy, stacje = indeksy w stations.json).
+    /// Typ klienta: 0 inny, 1 dojezdzajacy, 2 student, 3 rekreacyjny, 4 e-rowerzysta.
+    [Serializable] public class Agents
+    {
+        public int[] lostT, lostSt, lostType;                        // rezygnacja przy pustej stacji
+        public int[] walkT, walkEnd, walkFrom, walkTo, walkType;     // przejscie do sasiedniej stacji
+        public int[] waitT, waitEnd, waitSt, waitType;               // czekanie przy stacji (nowe zdarzenia)
+        public int[] taskT0, taskT1, taskTruck, taskPick, taskDrop, taskN;   // zadania dyspozytora
+        public int[] sigT, sigSt, sigOn;                             // sygnal stacji "potrzebuje rowerow"
+    }
+
+    /// Fale pustek: fala k = stacje st[start[k] .. start[k] + len[k]) pustoszejace w chwilach t[...].
+    [Serializable] public class Cascades { public int[] start; public int[] len; public int[] st; public int[] t; }
 
     [Serializable] public class Kpi
     {
@@ -146,6 +199,7 @@ namespace Veturilo.Viz
         public int[] fz;
         public int[] tx;
         public int[] tz;
+        public int[] kind;   // dane: 1 = trasa dojazdowa; symulacja: typ klienta (jak w Agents)
     }
 
     [Serializable] public class Trucks
@@ -156,6 +210,7 @@ namespace Veturilo.Viz
         public int[] n;
         public int[] fromSt;
         public int[] toSt;
+        public int[] truck;  // symulacja: numer ciezarowki (dane: brak)
     }
 
     [Serializable] public class Hours

@@ -1,0 +1,296 @@
+{
+ "H2": {
+  "days": 16,
+  "gini": 0.6699148310782926,
+  "gini_ci95": [
+   0.6481402731411214,
+   0.6984844089236512
+  ],
+  "gini_leave_one_day_out": [
+   0.6670480843572839,
+   0.6811174920923818
+  ],
+  "gini_per_day": [
+   0.8062570333922596,
+   0.8527206631565137,
+   0.9654818287998498
+  ],
+  "top10_jaccard_mean": 0.16172864958082947,
+  "top10_jaccard_random": 0.053763440860215055,
+  "top_morning": [
+   {
+    "station_id": "2585472",
+    "morning_empty_share": 0.3943298969072165,
+    "name": "Metro Centrum",
+    "district": "Śródmieście",
+    "minutes_empty_per_morning": 71.0,
+    "share_empty_all_day": 0.086,
+    "lat": 52.229939,
+    "lon": 21.010973
+   },
+   {
+    "station_id": "2585265",
+    "morning_empty_share": 0.2777777777777778,
+    "name": "Marymoncka - Dewajtis",
+    "district": "Bielany",
+    "minutes_empty_per_morning": 50.0,
+    "share_empty_all_day": 0.044,
+    "lat": 52.290173,
+    "lon": 20.95037
+   },
+   {
+    "station_id": "2585469",
+    "morning_empty_share": 0.2702020202020202,
+    "name": "Emilii Plater - al. Jerozolimskie",
+    "district": "Śródmieście",
+    "minutes_empty_per_morning": 49.0,
+    "share_empty_all_day": 0.075,
+    "lat": 52.229046,
+    "lon": 21.005454
+   },
+   {
+    "station_id": "3318682",
+    "morning_empty_share": 0.23737373737373738,
+    "name": "Żwirki i Wigury - Woronicza",
+    "district": "Ochota",
+    "minutes_empty_per_morning": 43.0,
+    "share_empty_all_day": 0.073,
+    "lat": 52.194579,
+    "lon": 20.982139
+   },
+   {
+    "station_id": "281045539",
+    "morning_empty_share": 0.20202020202020202,
+    "name": "Rembrandta – Miedza ",
+    "district": "Targówek",
+    "minutes_empty_per_morning": 36.0,
+    "share_empty_all_day": 0.031,
+    "lat": 52.280625,
+    "lon": 21.049645
+   },
+   {
+    "station_id": "2585457",
+    "morning_empty_share": 0.16161616161616163,
+    "name": "Plac Zawiszy",
+    "district": "Ochota",
+    "minutes_empty_per_morning": 29.0,
+    "share_empty_all_day": 0.04,
+    "lat": 52.225335,
+    "lon": 20.989825
+   },
+   {
+    "station_id": "2585785",
+    "morning_empty_share": 0.15404040404040403,
+    "name": "Żwirki i Wigury - Racławicka",
+    "district": "Ochota",
+    "minutes_empty_per_morning": 28.0,
+    "share_empty_all_day": 0.023,
+    "lat": 52.198137,
+    "lon": 20.983372
+   },
+   {
+    "station_id": "2585360",
+    "morning_empty_share": 0.15404040404040403,
+    "name": "Jana Olbrachta - Antka Rozpylacza",
+    "district": "Wola",
+    "minutes_empty_per_morning": 28.0,
+    "share_empty_all_day": 0.051,
+    "lat": 52.234223,
+    "lon": 20.934782
+   },
+   {
+    "station_id": "2585353",
+    "morning_empty_share": 0.15404040404040403,
+    "name": "Wolność - Bellottiego",
+    "district": "Wola",
+    "minutes_empty_per_morning": 28.0,
+    "share_empty_all_day": 0.075,
+    "lat": 52.24108,
+    "lon": 20.98316
+   },
+   {
+    "station_id": "2585438",
+    "morning_empty_share": 0.13636363636363635,
+    "name": "Emilii Plater - Złota",
+    "district": "Śródmieście",
+    "minutes_empty_per_morning": 25.0,
+    "share_empty_all_day": 0.059,
+    "lat": 52.230978,
+    "lon": 21.003676
+   }
+  ]
+ },
+ "A": {
+  "n": 127406,
+  "table": [
+   {
+    "minutes": 5,
+    "observed": 3806,
+    "step_ratio": 9.646085128744089,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 10,
+    "observed": 36713,
+    "step_ratio": 0.9564187072699044,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 15,
+    "observed": 35113,
+    "step_ratio": 0.6214222652578817,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 20,
+    "observed": 21820,
+    "step_ratio": 0.48006416131989,
+    "expected_ratio": 0.6319236349324462
+   },
+   {
+    "minutes": 25,
+    "observed": 10475,
+    "step_ratio": 0.4452505966587112,
+    "expected_ratio": 0.6597274265405061
+   },
+   {
+    "minutes": 30,
+    "observed": 4664,
+    "step_ratio": 0.6503001715265866,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 35,
+    "observed": 3033,
+    "step_ratio": 0.7072205736894164,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 40,
+    "observed": 2145,
+    "step_ratio": 0.7874125874125875,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 45,
+    "observed": 1689,
+    "step_ratio": 0.8484310242747187,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 50,
+    "observed": 1433,
+    "step_ratio": 0.8164689462665736,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 55,
+    "observed": 1170,
+    "step_ratio": 0.8641025641025641,
+    "expected_ratio": null
+   },
+   {
+    "minutes": 60,
+    "observed": 1011,
+    "step_ratio": 0.6409495548961425,
+    "expected_ratio": null
+   }
+  ],
+  "factor": 0.7160400738445868,
+  "factor_ci95": [
+   0.6955219862930966,
+   0.7355361760902954
+  ],
+  "share_le_20": 0.7648462395805535,
+  "share_le_25": 0.8470715664882345,
+  "n_days": 17
+ },
+ "B": {
+  "n_ebike": 24904,
+  "n_regular": 102502,
+  "ebike_share": 0.19546960111768677,
+  "km_median_ebike": 1.9675,
+  "km_median_regular": 1.8984999999999999,
+  "min_median_ebike": 15.0,
+  "min_median_regular": 15.0,
+  "mannwhitney_p": 6.845488573756625e-08,
+  "battery_median": 56.0,
+  "rented_low_share": 0.10429575414812658,
+  "parked_low_share": 0.17898236438029816,
+  "binom_p": 1.1380239956752024e-228,
+  "km_by_battery": {
+   "[0, 20)": 1.575,
+   "[20, 40)": 1.9455,
+   "[40, 60)": 2.019,
+   "[60, 80)": 2.05,
+   "[80, 101)": 2.097
+  },
+  "spearman_battery_km": 0.097543986814571,
+  "spearman_p": 6.348556153417549e-52
+ },
+ "C": {
+  "n_empty_periods": 3314,
+  "share_ended_by_truck": 0.0675920337960169,
+  "n_long": 1398,
+  "share_long_ended_by_truck": 0.11444921316165951,
+  "truck_wait_median_min": 45.0,
+  "spearman_empty_deliveries": 0.7445369382115244,
+  "spearman_p": 8.284347282661746e-62,
+  "deliveries_to_top20_share": 0.42945874001774625,
+  "rule": {
+   "description": "Regula operatora z danych (relokacje >= 4 rowery naraz). Zapelnienie = rowery / stojaki tuz przed dowozem (cel) i tuz przed zabraniem (start). Godziny = operator_shifts.is_shift.",
+   "n_relocations": 1127,
+   "deliver_when_fill_below": {
+    "median": 0.125,
+    "q25": 0.0,
+    "q75": 0.25
+   },
+   "pickup_when_fill_above": {
+    "median": 2.1666666666666665,
+    "q25": 1.6666666666666667,
+    "q75": 2.7
+   },
+   "share_deliveries_to_empty": 0.26441881100266196,
+   "bikes_per_relocation": {
+    "median": 4.0,
+    "q25": 4.0,
+    "q75": 6.0,
+    "max": 13
+   },
+   "shift_hours": {
+    "roboczy": [
+     0,
+     10,
+     11,
+     12,
+     13,
+     14,
+     19,
+     20,
+     21,
+     22,
+     23
+    ],
+    "wolny": [
+     1,
+     8,
+     9,
+     10,
+     11,
+     12,
+     13,
+     14,
+     15,
+     20,
+     21,
+     22
+    ]
+   },
+   "relocations_per_day": {
+    "roboczy": 65.819,
+    "wolny": 79.6
+   },
+   "caveat": "Widzimy tylko przewozy >= 4 rowerow; liczby ciezarowek nie znamy."
+  }
+ }
+}

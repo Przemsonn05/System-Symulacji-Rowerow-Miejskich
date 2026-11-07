@@ -3,6 +3,7 @@
     python -m src.viz.export                     # wszystkie dni
     python -m src.viz.export --days 2026-10-23 2026-10-24
     python -m src.viz.export --out sciezka/do/StreamingAssets/veturilo
+    python -m src.viz.export --source sim --runs results/sim/threshold_2/seed_1000 ...   # model (= export_sim)
 
 Wynik (domyslnie unity/Assets/StreamingAssets/veturilo/):
   index.json            lista dni + metadane (zrodlo danych, poczatek ukladu wspolrzednych)
@@ -14,13 +15,15 @@ Wynik (domyslnie unity/Assets/StreamingAssets/veturilo/):
   routes.json           trasy stacja -> stacja (po grafie rowerowym, jesli jest; inaczej prosto)
   truck_routes.json     trasy relokacji (po grafie drogowym, jesli jest; inaczej prosto)
   day_RRRR-MM-DD.json   jeden dzien: stan stacji co 5 min, przejazdy, relokacje, pogoda, KPI,
-                        korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami, szacowany utracony popyt
+                        korki TomTom, utrudnienia, wydarzenia, rowery poza stacjami, szacowany utracony popyt,
+                        fale pustek (src.metrics), przejazdy dojazdowe (trip_features)
+  sim_*.json            wynik symulacji DES - osobnym poleceniem python -m src.viz.export_sim
 
 Wspolrzedne: metry w ukladzie lokalnym, poczatek = Palac Kultury (x = wschod, z = polnoc).
 Czasy w dniu: sekundy od lokalnej polnocy (Europe/Warsaw), dzien 25.10 ma 25 h.
 
-Ten sam format moze zapisywac symulacja DES (--source sim + pliki w formacie processed/),
-wiec wizualizacja dziala bez zmian dla danych rzeczywistych i symulowanych.
+Symulacja DES ma ten sam format dnia (src/viz/export_sim.py); lista symulacji w index.json ("sims")
+jest zachowywana przy ponownym eksporcie danych rzeczywistych.
 """
 
 import argparse
@@ -613,6 +616,28 @@ def slot_matrix(ot, col, stations_order, slots):
     return wide.fillna(-1).astype(int)
 
 
+def commute_keys():
+    """(rower, t_departure) przejazdow na trasach dojazdowych (z src.data.agents)."""
+    path = PROCESSED / "trip_features.parquet"
+    if not path.exists():
+        return set()
+    tf = pd.read_parquet(path, columns=["bike", "t_departure", "is_commute"])
+    tf = tf[tf["is_commute"]]
+    return set(zip(tf["bike"].astype(str), tf["t_departure"]))
+
+
+def day_cascades():
+    """Fale pustek (>= 3 stacje) ze wszystkich dni - src.metrics, siatka 5 min."""
+    try:
+        from src.metrics.emergence import cascades
+        from src.metrics.io import load_run
+
+        return cascades(load_run(PROCESSED))["members"]
+    except Exception as e:  # metryki sa dodatkiem - eksport dziala bez nich
+        log(f"  fale pustek pominiete: {e}")
+        return []
+
+
 def export(out, days_wanted=None, source="observed"):
     log(f"Eksport do {out}")
     st = pd.read_parquet(PROCESSED / "stations.parquet")
@@ -623,6 +648,8 @@ def export(out, days_wanted=None, source="observed"):
     cx = pd.read_parquet(PROCESSED / "context_hourly.parquet")
     fleet = pd.read_parquet(PROCESSED / "fleet_timeseries.parquet")
     rates = demand_rates(pd.read_parquet(PROCESSED / "station_hourly.parquet"), cx)
+    commute = commute_keys()
+    members = day_cascades()
 
     # --- stacje
     st = st[st["station_id"].isin(ot["station_id"].unique())].reset_index(drop=True)
@@ -693,6 +720,9 @@ def export(out, days_wanted=None, source="observed"):
     tidx = {k: i for i, k in enumerate(tkeys)}
     write_json(out / "truck_routes.json", {"routes": [{"p": truck_routes[k]} for k in tkeys]})
 
+    old_index = out / "index.json"
+    sims = json.loads(old_index.read_text(encoding="utf-8")).get("sims", []) if old_index.exists() else []
+    sims = [s_ for s_ in sims if (out / s_["file"]).exists()]
     index = {
         "source": source,
         "generated": dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds"),
@@ -700,7 +730,11 @@ def export(out, days_wanted=None, source="observed"):
         "originLon": CENTER_LON,
         "slotSec": SLOT_SEC,
         "days": [],
+        "sims": sims,
     }
+    from .export_sim import flat_cascades
+
+    sidx_str = {str(k): v for k, v in sidx.items()}
     for day, (a, b) in zip(days, day_ranges):
         length = int((b - a).total_seconds())
         n_slots = length // SLOT_SEC
@@ -773,6 +807,7 @@ def export(out, days_wanted=None, source="observed"):
             "dayType": day_type,
             "uniClasses": uni,
             "events": events,
+            "source": "observed",
             "startEpoch": int(a.timestamp()),
             "tzOffsetSec": offset,
             "lengthSec": length,
@@ -802,7 +837,11 @@ def export(out, days_wanted=None, source="observed"):
                 "km": t["network_km"].fillna(t["distance_km"]).fillna(0).round(1).tolist(),
                 "fromSt": from_i, "toSt": to_i,
                 "fx": fx, "fz": fz, "tx": tx, "tz": tz,
+                # 1 = przejazd na trasie dojazdowej (processed/trip_features.parquet)
+                "kind": [int((str(bk), td) in commute) for bk, td in zip(t["bike"], t["t_departure"])],
             },
+            "cascades": flat_cascades([m for m in members if m["date"] == day], sidx_str,
+                                      pd.Timestamp(day).tz_localize(TZ)),
             "trucks": {
                 "dep": r_dep.tolist(), "arr": r_arr.tolist(),
                 "route": [tidx[(f_, to_)] for f_, to_ in zip(r["from_station"], r["to_station"])],
@@ -840,8 +879,17 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--out", type=Path, default=DEFAULT_OUT)
     ap.add_argument("--days", nargs="*", help="daty RRRR-MM-DD (domyslnie wszystkie)")
-    ap.add_argument("--source", default="observed", help="observed | sim (etykieta w wizualizacji)")
+    ap.add_argument("--source", default="observed", help="observed | sim (sim = przebiegi symulacji z --runs)")
+    ap.add_argument("--runs", nargs="*", default=[], help="--source sim: katalogi przebiegow symulacji")
     args = ap.parse_args()
+    if args.source == "sim":
+        # to samo co python -m src.viz.export_sim <katalogi>
+        from .export_sim import export as export_sim
+
+        if not args.runs:
+            ap.error("--source sim wymaga --runs <katalogi przebiegow>")
+        export_sim([Path(r) for r in args.runs], args.out)
+        return
     export(args.out, set(args.days) if args.days else None, args.source)
 
 

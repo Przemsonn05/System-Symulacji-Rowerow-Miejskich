@@ -13,6 +13,8 @@ Wynik (processed/):
   fleet_timeseries.parquet      flota w kazdym pomiarze (stacje, poza stacjami, w drodze)
   context_hourly.parquet        pogoda, zmrok, kalendarz, wydarzenia, ruch drogowy
   quality_report.md             raport jakosci danych
+  + dane dla agentow (src/data/agents.py): trip_features, commute_pairs, operator_shifts, district_flows,
+    daily_check
 """
 
 import argparse
@@ -345,6 +347,12 @@ def main(argv=None):
 
     report = quality_report(snaps, n_dup, n_inactive, len(stations), obs, trips, reb, builder)
     report += extra_report(balance, empty, fleet, trips)
+
+    log("Dane dla agentow...")
+    from .agents import build_agent_tables, report_section
+
+    check, _, pairs, shifts, _ = build_agent_tables(log)
+    report += report_section(check, pairs, shifts)
     (PROCESSED / "quality_report.md").write_text(report, encoding="utf-8")
     log("")
     log(report)

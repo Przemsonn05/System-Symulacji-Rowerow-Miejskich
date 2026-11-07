@@ -9,7 +9,11 @@ Interaktywna scena 3D Warszawy, która **odtwarza prawdziwy dzień** systemu Vet
 ```bash
 python -m src.data.build      # processed/  (ok. 1–2 min)
 python -m src.viz.export      # unity/Assets/StreamingAssets/veturilo/  (ok. 1 min, ~1 MB na dzień)
+python -m src.viz.export_sim results/sim/none_1/seed_1000 results/sim/operator_2/seed_1000 \
+    results/sim/threshold_2/seed_1000 results/sim/threshold_4/seed_1000   # model (do 4 przebiegów jednej daty)
 ```
+
+Przebieg symulacji to katalog z `kpis.json`, `station_timeseries.parquet`, `trips.parquet`, `events.parquet` (np. `python -m src.simulation run --scenario threshold --trucks 2 --out results/sim/threshold_2/seed_1000`). `export_sim` za każdym razem zastępuje listę symulacji w `index.json`, więc podaj od razu wszystkie przebiegi.
 
 Podkład mapy (Wisła, zieleń, ulice, metro, mosty), budynki całej Warszawy i trasy po drogach rowerowych są już w repozytorium (`data/static/osm/basemap.parquet`, `buildings_warsaw.parquet`, `viz_routes_*.parquet`), więc rowery jadą po prawdziwych ulicach bez pobierania czegokolwiek. Dla nowych par stacji, których nie ma w cache, trasa jest prosta. Dokładne trasy dla nich liczy graf OSM, który trzeba zbudować raz (pobiera ~120 MB, kilka minut):
 
@@ -68,7 +72,16 @@ Seria to 16 zrzutów (m.in. Wisła w dzień z odbiciami i deszczowy wieczór 25.
 
 **Śledzenie (klik na rower lub ciężarówkę):** kamera jedzie za rowerem, a u góry widać numer roweru, skąd, dokąd, dystans, czas przejazdu i ile zostało do celu. Esc kończy śledzenie.
 
-**Porównanie dwóch dni (X):** ekran dzieli się na pół. Po lewej wybrany dzień, po prawej inny o tej samej godzinie (domyślnie: dla dnia roboczego ostatni dzień wolny). Nagłówki pokazują rowery w drodze, przejazdy, puste stacje i utracony popyt obu dni. Dzień po prawej zmieniasz klawiszami `Shift + ,` `Shift + .` albo przyciskami „dzień B”. Gdy powstanie symulacja DES, ten sam widok pokaże model obok rzeczywistości.
+**Dane | model (X):** ekran dzieli się na pół. Po lewej prawdziwy dzień, po prawej symulacja tego samego dnia (najpierw odtworzenie operatora), o tej samej godzinie. Gdy dla dnia nie ma symulacji – inny dzień (dla roboczego ostatni wolny). Nagłówki nad panelami: rowery w drodze, przejazdy, puste stacje i **utraceni klienci** (w modelu dokładnie, w danych szacunek). Prawy widok zmieniasz `Shift + ,` `Shift + .` albo przyciskami „prawy <  >” (kolejno dni i przebiegi modelu).
+
+**Strategie (Z):** do 4 przebiegów symulacji tej samej daty w ćwiartkach ekranu (np. bez relokacji, operator, progowa 2 i 4 ciężarówki), z licznikiem utraconych klientów i kilometrami ciężarówek nad każdą. **N** przełącza główny widok między danymi a kolejnymi przebiegami modelu tej daty.
+
+**Agenci modelu (J):** ludziki przy stacjach – czekają przy pustej stacji, idą do sąsiedniej (zielona linia), odchodzą z ✕. Kolor = typ klienta (dojeżdżający, student, rekreacyjny, e-rowerzysta), gdy symulacja go zapisuje. **Dyspozytor (O):** pomarańczowy łuk od ciężarówki do stacji, która dostała rowery w zadaniu, z numerem ciężarówki i liczbą rowerów; czerwony sygnał nad stacją, jeśli model zapisuje `signal_on`.
+
+**Fale pustek (B):** stacja pustoszeje, a w ciągu 20 min pustoszeje stacja do 800 m od niej – różowe pierścienie i łuki „kto kogo zaraził”, licznik „fala pustek · 5/9”. Działa dla danych i modelu (te same funkcje co `python -m src.metrics`, siatka 5 min). **Ciśnienie (Y):** mapa ciepła na ziemi – czerwony = mniej rowerów niż zwykle na tej stacji (pusta = najmocniej), niebieski = więcej; rano widać odpływ z osiedli do centrum.
+
+**Pasek „na żywo”** (u góry na środku): ostatnie zdarzenia – stacja pusta, ciężarówka zabrała / przywiozła rowery, fala pustek, klienci odchodzą z niczym (model). **Trasy dojazdowe** (`processed/commute_pairs.parquet`) mają różowe rowery.
+
 
 **Utracony popyt – jak liczony:** dla każdej stacji, godziny i typu dnia szacujemy popyt z godzin, w których stacja miała rowery (wypożyczenia / godziny dostępności; przy małej liczbie obserwacji ściągnięty do profilu całego systemu). Każde 5 minut pustej stacji to popyt tej godziny / 12 klientów, którzy odeszli z niczym. To szacunek – dokładniej policzy go model popytu.
 
@@ -94,7 +107,10 @@ Seria to 16 zrzutów (m.in. Wisła w dzień z odbiciami i deszczowy wieczór 25.
 | 1 2 3 4 5 | miasto / Śródmieście / z góry / nisko nad ulicami / Wisła i mosty |
 | V | widok stacji: zapełnienie → bilans → H2 |
 | klik na rower / ciężarówkę | kamera jedzie za nim (Esc – koniec) |
-| X | porównanie dwóch dni (Shift + , . – zmiana dnia po prawej) |
+| X | dane \| model tego dnia (Shift + , . – zmiana prawego widoku: dni i przebiegi modelu) |
+| Z | do 4 strategii relokacji obok siebie |
+| N | główny widok: dane / kolejne przebiegi modelu |
+| J / O / B / Y | agenci modelu / dyspozytor / fale pustek / ciśnienie |
 | G / U | ślady całego dnia / utracony popyt |
 | **T** | **pokaz z komentarzem** (ok. 2 min, cały dzień) |
 | F / K / P / M | łuki OD / korki / mieszkańcy / podkład mapy |
@@ -124,12 +140,13 @@ Ręcznie: dzień zmieniasz klawiszami `,` `.`, godzinę suwakiem, widok klawisze
 ```
 Assets/Scenes/Veturilo.unity            pusta scena (kamera + światło) - resztę tworzy kod
 Assets/VeturiloViz/Scripts/
-  VeturiloApp.cs     punkt wejścia: budowa sceny, czas, klawisze, warstwy, ujęcia, śledzenie, porównanie dni, zrzuty
+  VeturiloApp.cs     punkt wejścia: budowa sceny, czas, klawisze, warstwy, ujęcia, śledzenie, porównania (2-4 panele), zrzuty
   DataStore.cs       wczytanie JSON, stan w czasie t, bilans stacji, H2 (Gini, udziały), trasy
   DataModel.cs       klasy odpowiadające plikom JSON
   CityBuilder.cs     podłoże, Wisła, zieleń, ulice, mosty, metro, granica, budynki całego miasta z oknami, drogi rowerowe, POI
   CityExtras.cs      drzewa (GPU instancing) i latarnie
   AnalysisLayers.cs  ślady całego dnia, utracony popyt (heksagony)
+  AgentLayers.cs     agenci modelu i dyspozytor, fale pustek, mapa ciśnienia
   StationLayer.cs    słupki stacji w trzech widokach, pierścienie, poświata
   BikeLayer.cs       rowery w drodze (ślady, poświata, rozbłyski), rowery poza stacjami
   TruckLayer.cs      ciężarówki relokacji
@@ -152,7 +169,9 @@ Assets/VeturiloViz/Resources/VeturiloMaterials/   szablony materiałów (shadery
 
 ## Dane z symulacji DES
 
-Eksporter czyta pliki w formacie `processed/` (`observed_timeseries`, `trips`, `rebalancing_observed`). Jeśli symulacja zapisze wynik w tym samym formacie, wystarczy wskazać go eksporterowi i dodać `--source sim`. Panel pokaże wtedy „SYMULACJA DES”. Porównanie (X) jest gotowe na zestawienie „rzeczywistość vs model” – wymaga tylko wczytania dnia symulacji jako dnia B.
+`python -m src.viz.export_sim` zapisuje dla każdego przebiegu `sim_<strategia>_<ciężarówki>_s<ziarno>_<data>.json` w tym samym formacie co dzień rzeczywisty, plus: agentów (rezygnacje, przejścia, czekanie, zadania dyspozytora, sygnały stacji), fale pustek, dokładny utracony popyt i własne trasy (`sim_routes.json`, `sim_truck_routes.json` – pary stacji, których nie było w danych). Pogoda, korki i wydarzenia są brane z dnia rzeczywistego tej samej daty. Schemat zdarzeń, które wizualizacja rozumie (także przyszłe: `user_wait_*`, `signal_*`, `task_awarded`, kolumna `pressure`): [`docs/kontrakty.md`](../docs/kontrakty.md).
+
+Zrzuty samych widoków modelu (szybki test po zmianach): `Veturilo.exe -screen-fullscreen 0 -vtShots C:\zrzuty -vtShotsSet sim`.
 
 ## Problemy
 

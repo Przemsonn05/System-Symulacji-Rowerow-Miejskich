@@ -139,7 +139,10 @@ namespace Veturilo.Viz
             Truck tk = null;
             foreach (var p in pool) if (!p.go.activeSelf) { tk = p; break; }
             if (tk == null) { tk = Create(); pool.Add(tk); }
-            tk.label.text = "+" + data.Day.trucks.n[i];
+            // pusta ciezarowka (dojazd po rowery) bez "+0"; w modelu numer ciezarowki
+            var tr = data.Day.trucks;
+            string num = tr.truck != null && i < tr.truck.Length ? $"{tr.truck[i] + 1}: " : "";
+            tk.label.text = tr.n[i] > 0 ? num + "+" + tr.n[i] : (num.Length > 0 ? num.TrimEnd(' ', ':') : "");
             var r = RouteOf(i).Sample(0, out var dir);
             tk.go.transform.position = new Vector3(r.x, 3.5f, r.y);
             if (dir.sqrMagnitude > 0.001f) tk.go.transform.rotation = Quaternion.LookRotation(new Vector3(dir.x, 0, dir.y));

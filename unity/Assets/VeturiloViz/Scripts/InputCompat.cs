@@ -6,7 +6,7 @@ using UnityEngine.InputSystem;
 
 namespace Veturilo.Viz
 {
-    public enum K { Space, Left, Right, Up, Down, W, A, S, D, Q, E, C, H, R, F1, Digit1, Digit2, Digit3, Digit4, LeftBracket, RightBracket, Comma, Period, Escape, Shift, V, T, F, P, K, M, F12, Digit5, G, U, X }
+    public enum K { Space, Left, Right, Up, Down, W, A, S, D, Q, E, C, H, R, F1, Digit1, Digit2, Digit3, Digit4, LeftBracket, RightBracket, Comma, Period, Escape, Shift, V, T, F, P, K, M, F12, Digit5, G, U, X, Z, N, J, Y, B, O }
 
     public static class InputCompat
     {
@@ -50,6 +50,12 @@ namespace Veturilo.Viz
                 case K.G: return Key.G;
                 case K.U: return Key.U;
                 case K.X: return Key.X;
+                case K.Z: return Key.Z;
+                case K.N: return Key.N;
+                case K.J: return Key.J;
+                case K.Y: return Key.Y;
+                case K.B: return Key.B;
+                case K.O: return Key.O;
                 default: return Key.LeftShift;
             }
         }
@@ -118,6 +124,12 @@ namespace Veturilo.Viz
                 case K.G: return KeyCode.G;
                 case K.U: return KeyCode.U;
                 case K.X: return KeyCode.X;
+                case K.Z: return KeyCode.Z;
+                case K.N: return KeyCode.N;
+                case K.J: return KeyCode.J;
+                case K.Y: return KeyCode.Y;
+                case K.B: return KeyCode.B;
+                case K.O: return KeyCode.O;
                 default: return KeyCode.LeftShift;
             }
         }

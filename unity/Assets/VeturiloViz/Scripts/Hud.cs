@@ -1,5 +1,6 @@
 // Panel informacyjny: zegar, pogoda, KPI, wykresy dnia, widok stacji z legenda, warstwy, karta stacji,
-// lista stacji pustych najdluzej, os czasu, napisy pokazu, pomoc.
+// lista stacji pustych najdluzej, os czasu, napisy pokazu, pomoc, pasek zdarzen "na zywo",
+// naglowki paneli porownania (2-4 widoki: dane | model, strategie).
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
@@ -12,13 +13,17 @@ namespace Veturilo.Viz
         Canvas canvas;
         Text title, dateLine, clock, tempBig, weatherDesc, weather2, weather3, eventsLine;
         Text dayLabel, speedLabel, tooltip, help, message, caption, modeDesc, emptyTitle;
-        Text kInUse, kTrips, kEmpty, kOver, kTrucks, kFleet, kLost;
-        RectTransform followPanel, compareLeft, compareRight, compareClock, divider;
-        Text followText, cmpLeft, cmpRight, cmpClock;
+        Text kInUse, kTrips, kEmpty, kOver, kTrucks, kFleet, kLost, kLostLabel, kTrucksLabel;
+        RectTransform followPanel, compareClock, tickerPanel;
+        readonly RectTransform[] cmpPanels = new RectTransform[4];
+        readonly Text[] cmpTexts = new Text[4];
+        readonly RectTransform[] dividers = new RectTransform[3];
+        Text followText, cmpClock, tickerText;
+        readonly List<DataStore.TickerItem> tickerItems = new List<DataStore.TickerItem>();
         readonly List<GameObject> mainPanels = new List<GameObject>();
         BarChart tripsChart, emptyChart, stationChart, flowChart, timelineChart;
         Slider slider;
-        Button play, tourButton, compareButton;
+        Button play, tourButton, compareButton, strategiesButton, modelButton;
         readonly List<(Button b, float speed)> speedButtons = new List<(Button, float)>();
         readonly Dictionary<string, Button> layerButtons = new Dictionary<string, Button>();
         readonly Dictionary<ViewMode, Button> modeButtons = new Dictionary<ViewMode, Button>();
@@ -58,9 +63,9 @@ namespace Veturilo.Viz
             kTrips = KpiRow(kpi, "Przejazdy od północy", ref y, Ui.TextMain);
             kEmpty = KpiRow(kpi, "Puste stacje", ref y, Mats.Empty);
             kOver = KpiRow(kpi, "Stacje ponad pojemność", ref y, Mats.Overfull);
-            kTrucks = KpiRow(kpi, "Relokacje operatora", ref y, Mats.Truck);
+            kTrucks = KpiRow(kpi, "Relokacje operatora", ref y, Mats.Truck, out kTrucksLabel);
             kFleet = KpiRow(kpi, "Na stacjach / poza obiegiem", ref y, Mats.Ok);
-            kLost = KpiRow(kpi, "Utracony popyt od północy (szac.)", ref y, LostDemandLayer.LostColor(12f));
+            kLost = KpiRow(kpi, "Utracony popyt od północy (szac.)", ref y, LostDemandLayer.LostColor(12f), out kLostLabel);
             Ui.Label(kpi, "Przejazdy na godzinę", 14, new Vector2(18, y - 6), new Vector2(420, 20), color: Ui.TextDim);
             tripsChart = new BarChart(kpi, new Vector2(18, y - 28), new Vector2(414, 92), 25, new Color(1f, 0.8f, 0.2f, 0.6f), Color.white);
             Ui.Label(kpi, "Puste stacje w ciągu dnia (średnio co 30 min)", 14, new Vector2(18, y - 130), new Vector2(420, 20), color: Ui.TextDim);
@@ -101,19 +106,29 @@ namespace Veturilo.Viz
             int ly = -136 - 6 * 22 - 8;
             Ui.Label(view, "W ruchu", 14, new Vector2(16, ly), new Vector2(300, 20), color: Ui.TextDim);
             ly -= 22;
-            LegendRow(view, Mats.Bike, "rower w drodze (ślad = kierunek)", ref ly);
-            LegendRow(view, Mats.EBike, "e-rower w drodze", ref ly);
-            LegendRow(view, Mats.Truck, "ciężarówka operatora (+ rowery)", ref ly);
-            LegendRow(view, new Color(0.95f, 0.95f, 1f), "rower zostawiony poza stacją", ref ly);
+            // dwie kolumny, zeby zmiescic agentow i analizy bez powiekszania panelu
+            var moving = new (Color c, string label)[]
+            {
+                (Mats.Bike, "rower w drodze"), (Mats.EBike, "e-rower w drodze"),
+                (Mats.Commute, "trasa dojazdowa"), (Mats.Truck, "ciężarówka (+ rowery)"),
+                (new Color(0.95f, 0.95f, 1f), "klient modelu (J)"), (Mats.Leaving, "odchodzi z niczym ✕"),
+                (Mats.Cascade, "fala pustek (B)"), (Mats.Dispatch, "zadanie dyspozytora (O)"),
+            };
+            for (int i = 0; i < moving.Length; i += 2)
+            {
+                LegendCell(view, moving[i].c, moving[i].label, 16, ly);
+                LegendCell(view, moving[i + 1].c, moving[i + 1].label, 200, ly);
+                ly -= 22;
+            }
 
             Ui.Label(view, "Warstwy", 14, new Vector2(16, ly - 6), new Vector2(300, 20), color: Ui.TextDim);
             int bx = 16, by = ly - 30;
             foreach (var name in VeturiloApp.LayerNames)
             {
                 string n = name;
-                var b = Ui.Button(view, n, new Vector2(bx, by), new Vector2(116, 28), () => app.ToggleLayer(n), 14);
+                var b = Ui.Button(view, n, new Vector2(bx, by), new Vector2(86, 28), () => app.ToggleLayer(n), 12);
                 layerButtons[n] = b;
-                bx += 122;
+                bx += 90;
                 if (bx > 300) { bx = 16; by -= 32; }
             }
 
@@ -156,9 +171,11 @@ namespace Veturilo.Viz
             speedLabel = Ui.Label(bar, "", 14, new Vector2(sx + 6, -18), new Vector2(160, 24), color: Ui.TextDim);
             tourButton = Ui.Button(bar, "Pokaz (T)", new Vector2(sx + 170, -12), new Vector2(120, 32), () => app.ToggleTour(), 15);
             Ui.Button(bar, "Zrzut (F12)", new Vector2(sx + 296, -12), new Vector2(120, 32), () => app.Screenshot(), 15);
-            compareButton = Ui.Button(bar, "Porównaj dni (X)", new Vector2(sx + 422, -12), new Vector2(160, 32), () => app.ToggleCompare(), 15);
-            Ui.Button(bar, "dzień B <", new Vector2(sx + 588, -12), new Vector2(96, 32), () => app.ChangeDayB(-1), 14);
-            Ui.Button(bar, "> ", new Vector2(sx + 688, -12), new Vector2(40, 32), () => app.ChangeDayB(+1), 14);
+            compareButton = Ui.Button(bar, "Porównaj (X)", new Vector2(sx + 422, -12), new Vector2(130, 32), () => app.ToggleCompare(), 15);
+            Ui.Button(bar, "prawy <", new Vector2(sx + 558, -12), new Vector2(84, 32), () => app.ChangeDayB(-1), 14);
+            Ui.Button(bar, ">", new Vector2(sx + 646, -12), new Vector2(36, 32), () => app.ChangeDayB(+1), 14);
+            modelButton = Ui.Button(bar, "Model (N)", new Vector2(sx + 694, -12), new Vector2(110, 32), () => app.ToggleModel(), 15);
+            strategiesButton = Ui.Button(bar, "Strategie (Z)", new Vector2(sx + 810, -12), new Vector2(130, 32), () => app.ToggleStrategies(), 15);
 
             timelineChart = new BarChart(bar, new Vector2(22, -50), new Vector2(1844, 40), 25, new Color(1f, 0.8f, 0.2f, 0.18f), new Color(1f, 0.8f, 0.2f, 0.45f), false);
             var tcr = timelineChart.Area;
@@ -175,7 +192,7 @@ namespace Veturilo.Viz
                 tr.anchoredPosition = new Vector2(0, 2);
             }
 
-            var hint = Ui.Label(root, "F1 pomoc · T pokaz · X porównaj dni · V widok · klik na rower – śledź", 14, Vector2.zero, new Vector2(700, 20), TextAnchor.LowerRight, Ui.TextDim);
+            var hint = Ui.Label(root, "F1 pomoc · T pokaz · X dane | model · Z strategie · N model · V widok · klik na rower – śledź", 14, Vector2.zero, new Vector2(700, 20), TextAnchor.LowerRight, Ui.TextDim);
             hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = hint.rectTransform.pivot = new Vector2(1, 0);
             hint.rectTransform.anchoredPosition = new Vector2(-24, 124);
             hint.gameObject.name = "Hint";
@@ -186,17 +203,32 @@ namespace Veturilo.Viz
             followText = Ui.Label(followPanel, "", 18, new Vector2(20, -12), new Vector2(600, 74), TextAnchor.UpperCenter);
             followPanel.gameObject.SetActive(false);
 
-            // porownanie dni: naglowki nad polowami ekranu, zegar na srodku, linia podzialu
-            divider = Ui.Rect("Divider", root, new Vector2(0.5f, 0), new Vector2(0.5f, 1), new Vector2(0.5f, 0.5f), Vector2.zero, new Vector2(3, 0));
-            divider.gameObject.AddComponent<Image>().color = new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.9f);
-            compareLeft = Ui.Panel("CompareL", root, new Vector2(0, 1), new Vector2(20, -20), new Vector2(560, 92));
-            cmpLeft = Ui.Label(compareLeft, "", 17, new Vector2(18, -12), new Vector2(530, 76));
-            compareRight = Ui.Panel("CompareR", root, new Vector2(1, 1), new Vector2(-20, -20), new Vector2(560, 92));
-            cmpRight = Ui.Label(compareRight, "", 17, new Vector2(18, -12), new Vector2(530, 76));
+            // pasek zdarzen "na zywo" (u gory na srodku)
+            tickerPanel = Ui.Panel("Ticker", root, new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(640, 118), new Color(0.03f, 0.04f, 0.06f, 0.78f));
+            tickerPanel.pivot = new Vector2(0.5f, 1);
+            Ui.Label(tickerPanel, "NA ŻYWO", 12, new Vector2(16, -10), new Vector2(120, 16), color: Ui.Accent, style: FontStyle.Bold);
+            tickerText = Ui.Label(tickerPanel, "", 15, new Vector2(16, -28), new Vector2(608, 88));
+
+            // porownanie: naglowki nad kazdym panelem, zegar na srodku, linie podzialu
+            for (int k = 0; k < dividers.Length; k++)
+            {
+                dividers[k] = Ui.Rect("Divider", root, Vector2.zero, Vector2.one, new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+                var di = dividers[k].gameObject.AddComponent<Image>();
+                di.color = new Color(Ui.Accent.r, Ui.Accent.g, Ui.Accent.b, 0.9f);
+                di.raycastTarget = false;
+            }
+            for (int k = 0; k < cmpPanels.Length; k++)
+            {
+                cmpPanels[k] = Ui.Panel("Compare" + k, root, new Vector2(0, 1), Vector2.zero, new Vector2(470, 96));
+                cmpPanels[k].pivot = new Vector2(0, 1);
+                cmpTexts[k] = Ui.Label(cmpPanels[k], "", 15, new Vector2(14, -10), new Vector2(446, 82));
+            }
             compareClock = Ui.Panel("CompareClock", root, new Vector2(0.5f, 1), new Vector2(0, -20), new Vector2(190, 74));
             compareClock.pivot = new Vector2(0.5f, 1);
             cmpClock = Ui.Label(compareClock, "", 48, new Vector2(0, -8), new Vector2(190, 60), TextAnchor.UpperCenter, style: FontStyle.Bold);
-            foreach (var r in new[] { divider, compareLeft, compareRight, compareClock }) r.gameObject.SetActive(false);
+            foreach (var r in dividers) r.gameObject.SetActive(false);
+            foreach (var r in cmpPanels) r.gameObject.SetActive(false);
+            compareClock.gameObject.SetActive(false);
             foreach (var name in new[] { "Info", "KPI", "View" }) mainPanels.Add(root.Find(name).gameObject);
 
             // napisy pokazu (nad osia czasu, na srodku)
@@ -237,16 +269,20 @@ namespace Veturilo.Viz
             "Klik na stację – karta stacji · Esc – zamknij\n" +
             "Spacja – start/pauza · ← → – 15 min · [ ] – wolniej/szybciej · , . – poprzedni/następny dzień\n" +
             "1 miasto · 2 Śródmieście · 3 z góry · 4 nad ulicami · 5 Wisła i mosty · C kamera kinowa\n" +
-            "T – pokaz z komentarzem · X – porównanie dwóch dni (Shift + , . zmienia dzień po prawej)\n" +
+            "T – pokaz z komentarzem · X – dane | model tego dnia (Shift + , . zmienia prawy widok: dni i przebiegi modelu)\n" +
+            "Z – do 4 strategii relokacji obok siebie (licznik utraconych klientów nad każdą) · N – główny widok: dane / model\n" +
+            "J agenci modelu (czekają, idą do sąsiedniej stacji, odchodzą ✕) · O decyzje dyspozytora · B fale pustek · Y ciśnienie\n" +
             "F łuki OD · G ślady dnia · U utracony popyt · K korki · P mieszkańcy · M mapa · H ukryj panele\n" +
             "Klik na rower lub ciężarówkę – kamera jedzie za nim (Esc – koniec)\n" +
             "Warstwa Efekty – bloom, SSAO i odbicia w wodzie (wyłącz na słabszym komputerze)\n" +
             "F12 – zrzut ekranu (folder Screenshots obok projektu / aplikacji)";
 
-        static Text KpiRow(Transform parent, string label, ref int y, Color c)
+        static Text KpiRow(Transform parent, string label, ref int y, Color c) => KpiRow(parent, label, ref y, c, out _);
+
+        static Text KpiRow(Transform parent, string label, ref int y, Color c, out Text labelText)
         {
             Ui.Swatch(parent, c, new Vector2(18, y - 12), new Vector2(10, 10));
-            Ui.Label(parent, label, 15, new Vector2(36, y - 6), new Vector2(260, 24), color: Ui.TextDim);
+            labelText = Ui.Label(parent, label, 15, new Vector2(36, y - 6), new Vector2(260, 24), color: Ui.TextDim);
             var v = Ui.Label(parent, "–", 22, new Vector2(232, y - 3), new Vector2(200, 30), TextAnchor.UpperRight, style: FontStyle.Bold);
             y -= 36;
             return v;
@@ -257,6 +293,12 @@ namespace Veturilo.Viz
             var g = Ui.Rect("Legend", parent, new Vector2(0, 1), new Vector2(0, 1), new Vector2(0, 1), Vector2.zero, new Vector2(390, 140));
             foreach (var (c, label) in rows) LegendRow(g, c, label, ref y);
             return g.gameObject;
+        }
+
+        static void LegendCell(Transform parent, Color c, string label, int x, int y)
+        {
+            Ui.Swatch(parent, c, new Vector2(x, y - 3), new Vector2(14, 14));
+            Ui.Label(parent, label, 13, new Vector2(x + 22, y), new Vector2(160, 20));
         }
 
         static void LegendRow(Transform parent, Color c, string label, ref int y)
@@ -285,8 +327,10 @@ namespace Veturilo.Viz
             }
             emptyChart.SetValues(e);
             dayLabel.text = d.Day.label;
-            title.text = "VETURILO · " + (d.Index.source == "sim" ? "<color=#ff9f40>SYMULACJA DES</color>" : "dane rzeczywiste") +
+            title.text = (d.IsSim ? $"<color=#ff9f40>MODEL · {d.SourceLabel.Replace("MODEL · ", "")}</color>" : "VETURILO · dane rzeczywiste") +
                          $" · {d.Day.trips.dep.Length} przejazdów" + (d.Day.coverage < 0.95f ? $" · pokrycie {d.Day.coverage:P0}" : "");
+            kLostLabel.text = d.IsSim ? "Utracony popyt od północy (model)" : "Utracony popyt od północy (szac.)";
+            kTrucksLabel.text = d.IsSim ? "Kursy ciężarówek (model)" : "Relokacje operatora";
             chartFor = null;
         }
 
@@ -314,6 +358,12 @@ namespace Veturilo.Viz
                             (app.Context.ActiveIncidents > 0 ? $" · utrudnienia {app.Context.ActiveIncidents}" : "");
             eventsLine.text = app.Context.ActiveEvents > 0 ? "Teraz: " + app.Context.ActiveEventNames
                             : day.events != null && day.events.Length > 0 ? "Wydarzenia dziś: " + string.Join(", ", day.events) : "";
+            if (d.IsSim)
+                eventsLine.text = $"<color=#ffffff>Agenci: czeka {app.Agents.Waiting} · idzie {app.Agents.Walking} · odchodzi {app.Agents.Leaving}" +
+                                  $" · zadania {app.Agents.ActiveTasks}</color>" + (app.Cascades.Active > 0 ? $"\n<color=#ff4d8c>fale pustek teraz: {app.Cascades.Active}</color>" : "");
+            else if (app.Cascades.Active > 0 && app.LayerOn("Fale pustek"))
+                eventsLine.text = $"<color=#ff4d8c>Fale pustek teraz: {app.Cascades.Active} ({app.Cascades.ActiveStations} stacji)</color>" +
+                                  (eventsLine.text.Length > 0 ? "\n" + eventsLine.text : "");
             if (eventsLine.text.Length > 110) eventsLine.text = eventsLine.text.Substring(0, 107) + "...";
 
             var k = day.kpi;
@@ -324,7 +374,8 @@ namespace Veturilo.Viz
             kOver.text = known ? k.overfull[slot].ToString() : "–";
             kTrucks.text = $"{app.Trucks.DoneCount} <size=14><color=#9aa3b0>({app.Trucks.BikesMovedToday} rowerów)</color></size>";
             int away = k.awayLong != null && k.awayLong.Length > slot ? k.awayLong[slot] : -1;
-            kLost.text = d.HasLost ? $"≈ {d.TotalLostAt(t):0} <size=14><color=#9aa3b0>osób</color></size>" : "–";
+            kLost.text = d.IsSim ? $"{d.TotalLostAt(t):0} <size=14><color=#9aa3b0>osób</color></size>"
+                       : d.HasLost ? $"≈ {d.TotalLostAt(t):0} <size=14><color=#9aa3b0>osób</color></size>" : "–";
             kFleet.text = (known ? k.atStations[slot].ToString() : "–") + (away >= 0 ? $" / {away}" : "");
 
             int hour = Mathf.Clamp(Mathf.FloorToInt(t / 3600f), 0, 24);
@@ -340,8 +391,11 @@ namespace Veturilo.Viz
             foreach (var (b, s) in speedButtons) Ui.SetOn(b, Mathf.Approximately(s, app.Speed));
             speedLabel.text = $"1 s = {app.Speed / 60f:0.#} min";
             Ui.SetOn(tourButton, app.TourRunning);
-            Ui.SetOn(compareButton, app.Comparing);
+            Ui.SetOn(compareButton, app.Mode == VeturiloApp.CompareMode.Pair);
+            Ui.SetOn(strategiesButton, app.Mode == VeturiloApp.CompareMode.Strategies);
+            Ui.SetOn(modelButton, d.IsSim);
             if (app.Comparing) UpdateCompare(d, t);
+            UpdateTicker(d, t);
 
             foreach (var kv in modeButtons) Ui.SetOn(kv.Value, kv.Key == app.Stations.Mode);
             foreach (var kv in legends) kv.Value.SetActive(kv.Key == app.Stations.Mode);
@@ -461,31 +515,85 @@ namespace Veturilo.Viz
             if (text != null) followText.text = text;
         }
 
+        void UpdateTicker(DataStore d, float t)
+        {
+            bool show = Visible && !app.Comparing && !followPanel.gameObject.activeSelf && !app.TourRunning;
+            if (tickerPanel.gameObject.activeSelf != show) tickerPanel.gameObject.SetActive(show);
+            if (!show) return;
+            // okno 45 min czasu symulacji; najnowsze u gory, starsze przygaszone
+            d.TickerAt(t, 2700f, 4, tickerItems);
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < tickerItems.Count; i++)
+            {
+                var it = tickerItems[i];
+                var c = it.color; c.a = i == 0 ? 1f : 0.85f - 0.15f * i;
+                sb.Append($"<color=#9aa3b0>{d.ClockText(it.t)}</color>  <color=#{ColorUtility.ToHtmlStringRGBA(c)}>{it.text}</color>");
+                if (i < tickerItems.Count - 1) sb.Append('\n');
+            }
+            tickerText.text = tickerItems.Count > 0 ? sb.ToString() : "<color=#9aa3b0>spokojnie – brak zdarzeń w ostatnich 45 min</color>";
+        }
+
         public void SetCompare(bool on)
         {
             foreach (var g in mainPanels) g.SetActive(!on && Visible);
-            foreach (var r in new[] { divider, compareLeft, compareRight, compareClock }) r.gameObject.SetActive(on);
+            int n = on ? app.Panels.Count + 1 : 0;
+            for (int k = 0; k < cmpPanels.Length; k++) cmpPanels[k].gameObject.SetActive(k < n);
+            compareClock.gameObject.SetActive(on);
             followPanel.gameObject.SetActive(false);
+            foreach (var r in dividers) r.gameObject.SetActive(false);
+            if (!on) return;
+            // linie podzialu: pionowe miedzy kolumnami, pozioma przy 4 panelach
+            int div = 0;
+            void Vertical(float x)
+            {
+                var r = dividers[div++];
+                r.anchorMin = new Vector2(x, 0); r.anchorMax = new Vector2(x, 1); r.sizeDelta = new Vector2(3, 0);
+                r.gameObject.SetActive(true);
+            }
+            if (n == 2 || n == 4) Vertical(0.5f);
+            if (n == 3) { Vertical(1 / 3f); Vertical(2 / 3f); }
+            if (n == 4)
+            {
+                var r = dividers[div++];
+                r.anchorMin = new Vector2(0, 0.5f); r.anchorMax = new Vector2(1, 0.5f); r.sizeDelta = new Vector2(0, 3);
+                r.gameObject.SetActive(true);
+            }
+            for (int k = 0; k < n; k++)
+            {
+                var rect = app.ViewRect(k);
+                var r = cmpPanels[k];
+                r.anchorMin = r.anchorMax = new Vector2(rect.x, rect.yMax);
+                // w gornym srodku jest zegar - przy 2 kolumnach naglowek prawego panelu przesuwamy w prawo
+                float x = k > 0 && Mathf.Approximately(rect.x, 0.5f) && rect.yMax > 0.99f ? 112f : 12f;
+                r.anchoredPosition = new Vector2(x, rect.yMax > 0.99f ? -12f : -8f);
+                r.sizeDelta = new Vector2(Mathf.Min(470f, rect.width * 1920f - x - 24f), 96f);
+            }
         }
 
         void UpdateCompare(DataStore a, float t)
         {
-            var b = app.DataB; float tb = app.TimeB;
             cmpClock.text = a.ClockText(t);
-            cmpLeft.text = CompareText("A", a, t, app.Bikes.ActiveCount, app.Bikes.StartedCount);
-            cmpRight.text = CompareText("B", b, tb, app.BikesB.ActiveCount, app.BikesB.StartedCount);
+            cmpTexts[0].text = CompareText(a, t, app.Bikes.ActiveCount, app.Bikes.StartedCount, app.Mode == VeturiloApp.CompareMode.Strategies);
+            for (int k = 0; k < app.Panels.Count && k + 1 < cmpTexts.Length; k++)
+            {
+                var p = app.Panels[k];
+                cmpTexts[k + 1].text = CompareText(p.Data, p.Time, p.Bikes.ActiveCount, p.Bikes.StartedCount, app.Mode == VeturiloApp.CompareMode.Strategies);
+            }
         }
 
-        static string CompareText(string side, DataStore d, float t, int inUse, int started)
+        static string CompareText(DataStore d, float t, int inUse, int started, bool strategies)
         {
             var day = d.Day; int slot = d.SlotAt(t);
             bool known = day.kpi.known[slot] == 1;
-            float temp = d.HourValue(day.hours.temp, t), precip = d.HourValue(day.hours.precip, t);
-            return $"<b><color=#ffcc33>{side}</color>  {day.label} · {DataStore.DayTypeText(day.dayType)}</b>" +
-                   $"  <color=#9aa3b0>{temp:0}°C{(precip > 0.05f ? $", deszcz {precip:0.0} mm/h" : "")}</color>\n" +
-                   $"w drodze <b>{inUse}</b> · przejazdy <b>{started}</b> z {day.trips.dep.Length} · " +
-                   $"puste <b><color=#f23340>{(known ? day.kpi.empty[slot].ToString() : "–")}</color></b>" +
-                   (d.HasLost ? $" · utracony popyt <b>≈ {d.TotalLostAt(t):0}</b>" : "");
+            string head = d.IsSim ? $"<color=#ff9f40>MODEL</color> · {d.SourceLabel.Replace("MODEL · ", "")}"
+                                  : $"<color=#ffcc33>DANE</color> · {day.label} · {DataStore.DayTypeText(day.dayType)}";
+            float lost = d.TotalLostAt(t);
+            string lostText = d.IsSim ? $"<size=26><b><color=#ff8095>{lost:0}</color></b></size> utraconych klientów"
+                                      : d.HasLost ? $"<size=26><b><color=#ff8095>≈{lost:0}</color></b></size> utraconych (szac.)" : "";
+            string km = d.IsSim && day.simKpi != null && strategies ? $" · {day.simKpi.truck_km:0} km/dobę" : "";
+            return $"<b>{head}</b>\n{lostText}{km}\n" +
+                   $"<color=#9aa3b0>w drodze</color> <b>{inUse}</b> · <color=#9aa3b0>przejazdy</color> <b>{started}</b>/{day.trips.dep.Length} · " +
+                   $"<color=#9aa3b0>puste</color> <b><color=#f23340>{(known ? day.kpi.empty[slot].ToString() : "–")}</color></b>";
         }
 
         public void ShowCaption(string text, float seconds)
@@ -502,7 +610,7 @@ namespace Veturilo.Viz
             Visible = !Visible;
             foreach (Transform c in canvas.transform)
                 if (c.name != "Help" && c.name != "Station" && c.name != "EmptyList" && c.name != "Tooltip" && c.name != "Caption" && c.name != "Message"
-                    && c.name != "Follow" && !c.name.StartsWith("Compare") && c.name != "Divider"
+                    && c.name != "Follow" && !c.name.StartsWith("Compare") && c.name != "Divider" && c.name != "Ticker"
                     && !(app.Comparing && (c.name == "Info" || c.name == "KPI" || c.name == "View")))
                     c.gameObject.SetActive(Visible);
         }

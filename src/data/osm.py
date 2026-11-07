@@ -8,6 +8,7 @@ Pliki:
   basemap.parquet                 podklad mapy dla wizualizacji: woda, zielen, glowne ulice, mosty, tory, metro
   buildings_warsaw.parquet        budynki calej Warszawy z wysokoscia (wizualizacja 3D)
   graph_bike.graphml, graph_drive.graphml   grafy drog (z wycinka BBBike, nie z Overpass)
+  districts.geojson               18 dzielnic Warszawy (bilans dzielnic, dane dla agentow)
 Odpowiedzi Overpass sa cache'owane w osm/cache (OSMnx), wiec ponowne
 uruchomienie nie pobiera ich drugi raz.
 """
@@ -467,6 +468,35 @@ def fetch_buildings_all(log, force=False):
     log(f"  OSM budynki Warszawy: {len(out)} -> {path.name}")
 
 
+DISTRICTS = ["Bemowo", "Białołęka", "Bielany", "Mokotów", "Ochota", "Praga-Południe", "Praga-Północ", "Rembertów",
+             "Śródmieście", "Targówek", "Ursus", "Ursynów", "Wawer", "Wesoła", "Wilanów", "Włochy", "Wola", "Żoliborz"]
+
+
+def fetch_districts(ox, log, force=False):
+    """18 dzielnic (admin_level 9). Dzielnica bez osobnej granicy w odpowiedzi (np. Bemowo) = reszta miasta
+    po odjeciu pozostalych 17 (dzielnice dziela miasto bez nakladania)."""
+    import geopandas as gpd
+    import shapely
+
+    path = OSM_DIR / "districts.geojson"
+    if path.exists() and not force:
+        return
+    city = boundary(ox).to_crs("EPSG:4326").geometry.iloc[0]
+    g = _retry(ox, lambda: ox.features_from_place(PLACE, tags={"boundary": "administrative", "admin_level": "9"}),
+               log, "dzielnice")
+    g = g[g.geometry.geom_type.isin(["Polygon", "MultiPolygon"]) & g["name"].isin(DISTRICTS)]
+    g = g[g.geometry.representative_point().within(city)].drop_duplicates("name")[["name", "geometry"]]
+    missing = [d for d in DISTRICTS if d not in set(g["name"])]
+    if len(missing) == 1:
+        rest = city.difference(shapely.union_all(list(g.geometry)))
+        part = max(shapely.get_parts(rest), key=lambda x: x.area)
+        g = pd.concat([g, gpd.GeoDataFrame({"name": missing, "geometry": [part]}, crs="EPSG:4326")])
+    elif missing:
+        log(f"  dzielnice: brak {missing}")
+    gpd.GeoDataFrame(g, crs="EPSG:4326").reset_index(drop=True).to_file(path, driver="GeoJSON")
+    log(f"  dzielnice: {len(g)} -> {path.name}")
+
+
 def fetch_all(log, force_graphs=False):
     from .config import STATIC
 
@@ -482,6 +512,7 @@ def fetch_all(log, force_graphs=False):
     fetch_buildings(ox, log)
     fetch_basemap(log)
     fetch_buildings_all(log)
+    fetch_districts(ox, log)
     # Grafy sluza tylko do macierzy odleglosci miedzy stacjami, ktora jest w repo -
     # budujemy je (pobranie ~120 MB) tylko, gdy jej brak albo na zadanie (--force osm).
     if (STATIC / "station_network_distance.parquet").exists() and not force_graphs:

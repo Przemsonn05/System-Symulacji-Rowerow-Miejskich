@@ -136,7 +136,7 @@ namespace Veturilo.Viz
                 go.transform.localScale = Vector3.one * size;
                 kv.Value.trail.widthMultiplier = size * 0.7f;
 
-                var c = tr.ebike[i] == 1 ? Mats.EBike : Mats.Bike; c.a = 0.55f;
+                var c = ColorOf(i); c.a = 0.55f;
                 glowBuf[g].position = pos;
                 glowBuf[g].startSize = size * 5.5f;
                 glowBuf[g].startColor = c;
@@ -147,6 +147,28 @@ namespace Veturilo.Viz
             foreach (var i in toRemove) { Release(active[i]); active.Remove(i); }
             glow.SetParticles(glowBuf, g);
             UpdateLoose(t, size);
+        }
+
+        /// Typ przejazdu: dane - 1 = trasa dojazdowa; symulacja - typ klienta (0 = zwykly).
+        int KindOf(int i)
+        {
+            var k = data.Day.trips.kind;
+            return k != null && i < k.Length ? k[i] : 0;
+        }
+
+        Color ColorOf(int i)
+        {
+            if (data.Day.trips.ebike[i] == 1) return Mats.EBike;
+            int k = KindOf(i);
+            return k <= 0 ? Mats.Bike : data.IsSim ? Mats.UserType(k) : Mats.Commute;
+        }
+
+        readonly Dictionary<int, Material> kindMats = new Dictionary<int, Material>();
+        Material KindMat(int k)
+        {
+            if (!kindMats.TryGetValue(k, out var m))
+                kindMats[k] = m = Mats.Unlit(data.IsSim ? Mats.UserType(k) : Mats.Commute);
+            return m;
         }
 
         void Flash(Vector2 p, bool ebike, float size)
@@ -186,8 +208,8 @@ namespace Veturilo.Viz
             var b = Get();
             b.trip = i;
             bool e = data.Day.trips.ebike[i] == 1;
-            b.r.sharedMaterial = e ? ebikeMat : bikeMat;
-            var c = e ? Mats.EBike : Mats.Bike;
+            var c = ColorOf(i);
+            b.r.sharedMaterial = e ? ebikeMat : KindOf(i) > 0 ? KindMat(KindOf(i)) : bikeMat;
             b.trail.startColor = new Color(c.r, c.g, c.b, 0.85f);
             b.trail.endColor = new Color(c.r, c.g, c.b, 0f);
             var p = RouteOf(i).Sample(0f, out _);

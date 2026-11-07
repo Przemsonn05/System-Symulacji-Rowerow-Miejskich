@@ -217,6 +217,29 @@ namespace Veturilo.Viz
         public static readonly Color Gaining = new Color(0.25f, 0.75f, 1.00f);   // stacja zyskuje rowery
         public static readonly Color Neutral = new Color(0.55f, 0.57f, 0.62f);
         public static readonly Color Event = new Color(1.00f, 0.85f, 0.35f);
+        public static readonly Color Commute = new Color(1.00f, 0.42f, 0.82f);   // przejazd na trasie dojazdowej
+        public static readonly Color Cascade = new Color(1.00f, 0.30f, 0.55f);   // fala pustek
+        public static readonly Color Leaving = new Color(1.00f, 0.50f, 0.58f);   // klient odchodzi z niczym
+        public static readonly Color Walking = new Color(0.55f, 1.00f, 0.75f);   // klient idzie do sasiedniej stacji
+        public static readonly Color Dispatch = new Color(1.00f, 0.72f, 0.25f);  // zadanie dyspozytora
+        public static readonly Color Shortage = new Color(0.95f, 0.18f, 0.22f);  // cisnienie: brakuje rowerow
+        public static readonly Color Surplus = new Color(0.22f, 0.55f, 1.00f);   // cisnienie: za duzo rowerow
+        public static readonly Color Sim = new Color(1.00f, 0.62f, 0.25f);       // akcent "model"
+
+        /// Typ klienta (symulacja): 0 inny, 1 dojezdzajacy, 2 student, 3 rekreacyjny, 4 e-rowerzysta.
+        public static Color UserType(int k)
+        {
+            switch (k)
+            {
+                case 1: return Commute;
+                case 2: return new Color(0.50f, 1.00f, 0.45f);
+                case 3: return new Color(0.70f, 0.58f, 1.00f);
+                case 4: return EBike;
+                default: return new Color(0.94f, 0.95f, 1.00f);
+            }
+        }
+
+        public static readonly string[] UserTypeNames = { "klient", "dojeżdżający", "student", "rekreacyjny", "e-rowerzysta" };
 
         /// Kolor stacji wg zapelnienia (rowery / pojemnosc). Na Veturilo 3.0 zostawianie rowerow ponad stojaki
         /// jest normalne, wiec do 150% stacja jest po prostu "pelna"; fiolet dopiero przy mocnym przepelnieniu.
