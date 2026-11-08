@@ -1,115 +1,188 @@
 # Symulacja systemu rowerów miejskich Veturilo
 
-Projekt z przedmiotu *Symulacja systemów dyskretnych*. Budujemy **symulację komputerową systemu Veturilo w Warszawie**: wirtualne stacje, rowery, klientów, którzy je wypożyczają i oddają, oraz samochody operatora, które przewożą rowery między stacjami. Symulacja ma odtwarzać rzeczywistość, więc jej parametry (ilu klientów, kiedy, skąd, dokąd) bierzemy z **danych, które sami zbieramy** od 22.10.2026.
+Projekt z przedmiotu *Symulacja systemów dyskretnych*. Budujemy **agentową symulację Veturilo w Warszawie**: stacje, rowery, klienci, którzy je wypożyczają i oddają, oraz ciężarówki operatora, które przewożą rowery między stacjami. Wszystkie liczby w modelu (ilu klientów, kiedy, skąd, dokąd) bierzemy z **danych, które sami zbieramy co 5 minut** od 22.10.2026.
 
-Gdy model będzie zgodny z rzeczywistością, możemy na nim sprawdzać rzeczy, których nie da się przetestować na prawdziwym systemie, np. „co by było, gdyby operator przewoził rowery inaczej albo częściej”.
+Gdy model zachowuje się jak prawdziwe miasto, sprawdzamy na nim to, czego nie da się przetestować na żywym systemie, np. „co by było, gdyby operator przewoził rowery inaczej albo miał więcej ciężarówek”.
 
-## O co pytamy
+**Główne pytania**
+1. **Skąd biorą się puste stacje?** Gdzie i kiedy klient przychodzi, a roweru nie ma.
+2. **Od czego zależy liczba wypożyczeń?** Pora dnia, dzień tygodnia, pogoda, zajęcia na uczelniach, korki, otoczenie stacji.
+3. **Która strategia przewożenia rowerów najlepiej zmniejsza liczbę klientów odchodzących z niczym?** Na to odpowiada symulacja.
 
-Silnik DES i kamień milowy na 5 XI: [instrukcja, model i kontrakty danych](docs/simulation.md). Cały łańcuch (dane → modele → symulacja → metryki → 3D) jednym poleceniem: `./run_all.ps1` (`-Quick` – sprawdzenie w ok. 10–15 min). Kontrakty między częściami: [`docs/kontrakty.md`](docs/kontrakty.md), raport końcowy: [`docs/raport/`](docs/raport/README.md).
+**Ważne linki:** [silnik symulacji](docs/simulation.md) · [kontrakty między częściami](docs/kontrakty.md) · [raport końcowy](docs/raport/README.md) · [wyniki emergencji](docs/wyniki/emergencja.md) · [hipotezy z danych](docs/wyniki/hipotezy_osoba1.md) · [eksperyment H3 z 5.11](docs/milestone-2026-11-05/REPORT.md) · [wizualizacja 3D](unity/README.md)
 
-1. **Skąd biorą się puste stacje?** Klient przychodzi, a roweru nie ma: to podstawowy problem systemu. Chcemy wiedzieć, gdzie i kiedy to się dzieje.
-2. **Od czego zależy liczba wypożyczeń?** Pora dnia, dzień tygodnia, pogoda, zajęcia na uczelniach, święta, otoczenie stacji (metro, biura, uczelnie).
-3. **Która strategia przewożenia rowerów najlepiej zmniejsza liczbę klientów, którzy odchodzą z niczym?** To odpowiemy symulacją.
+---
+
+## Spis treści
+
+1. [Jak uruchomić](#jak-uruchomić)
+2. [Stan prac (8.11.2026)](#stan-prac-8112026)
+3. [Najważniejsze wyniki](#najważniejsze-wyniki)
+4. [Hipotezy](#hipotezy)
+5. [Dane](#dane)
+6. [Modele, symulacja, metryki, 3D: jak to działa](#modele-symulacja-metryki-3d-jak-to-działa)
+7. [Pliki w repozytorium](#pliki-w-repozytorium)
+
+---
+
+## Jak uruchomić
+
+```bash
+git pull                                                     # nowe dane dochodzą co godzinę
+pip install -r requirements.txt                              # raz (symulacja: requirements-simulation.txt)
+python -m src.data.fetch_static --only weather air_quality   # dociągnięcie pogody z ostatnich dni
+python -m src.data.build                                     # dane surowe -> processed/   (1–2 min)
+python -m src.model.pipeline                                 # modele + kalibracja + walidacja -> processed/model/  (ok. 10 min)
+python -m src.metrics.hypotheses                             # hipotezy H2, A, B, C -> docs/wyniki/
+python -m src.metrics processed --sim <katalog przebiegu>    # emergencja: dane vs symulacja -> docs/wyniki/emergencja.md
+python -m src.viz.export                                     # dane -> Unity
+python -m src.viz.export_sim <katalogi przebiegów>           # symulacja -> Unity (do 4 strategii)
+python -m pytest                                             # testy
+```
+
+**Albo wszystko naraz:** `./run_all.ps1` (Windows/PowerShell; `-Quick` = szybkie sprawdzenie łańcucha w 10–15 min). Uruchamianie symulacji i eksperymentów: [`docs/simulation.md`](docs/simulation.md). Wizualizacja: Unity 6000.0.85f1, projekt `unity/`, scena `Assets/Scenes/Veturilo.unity` → Play ([szczegóły](unity/README.md)).
+
+Folder `processed/` nie jest w repozytorium: każdy tworzy go u siebie poleceniem `build`.
+
+---
 
 ## Stan prac (8.11.2026)
 
-| Etap | Stan |
+Legenda: ✅ zrobione · 🟡 zrobione częściowo / wstępnie · ⬜ do zrobienia
+
+**Terminy:** 19.11 – dane dla agentów, modele w silniku, silnik przerobiony na agentów · **30.11** – koniec sezonu Veturilo (koniec danych) · **1.12** – zamrożenie danych (`dane-final`, [instrukcja](docs/raport/powtarzalnosc.md)) · 3.12 – wszyscy agenci gotowi, zamrożenie `sim_params.json` · 17.12 – eksperymenty i hipotezy · 14.01 – raport końcowy.
+
+### W skrócie
+
+| Część | Stan |
 |---|---|
-| Automatyczne zbieranie danych co 5 minut | ✅ działa samo od 22.10, bez przerw od 26.10 |
-| Dane dodatkowe: pogoda, kalendarz, wydarzenia, mapa miasta, mieszkańcy, komunikacja | ✅ pobrane, są w repozytorium |
-| Przetworzenie danych: odtworzenie przejazdów, relokacji, pustych stacji | ✅ jedno polecenie: `python -m src.data.build` |
-| Analiza opisowa i test pierwszej hipotezy (2 notebooki) | ✅ wstępnie; do przeliczenia na pełnych 2 tygodniach |
-| Wizualizacja 3D odtwarzająca prawdziwy dzień (z pokazem z komentarzem) | ✅ działa |
-| Dane dla agentów: typy podróży, trasy dojazdowe, godziny pracy operatora, bilans dzielnic | ✅ `src/data/agents.py` (w `build`) |
-| Pomiar emergencji (te same metryki dla danych i modelu) | ✅ `python -m src.metrics`; [wyniki](docs/wyniki/emergencja.md) |
-| Hipotezy z danych H2, A, B, C + reguła operatora | ✅ `python -m src.metrics.hypotheses`; [wyniki](docs/wyniki/hipotezy_osoba1.md) |
-| Symulacja w 3D: dane \| model, 4 strategie obok siebie, agenci, dyspozytor, fale pustek | ✅ `python -m src.viz.export_sim` |
-| Model popytu: ilu klientów na której stacji o której godzinie | ⏳ następny krok |
-| Symulacja i porównanie strategii relokacji | ⏳ |
+| Zbieranie danych (co 5 min, automatycznie) | ✅ działa samo od 22.10, bez przerw od 26.10; 16 pełnych dób, ok. 150 tys. przejazdów |
+| Przetwarzanie danych + dane dla agentów | ✅ jedno polecenie `build` |
+| Pomiar emergencji (te same metryki dla danych i symulacji) | ✅ |
+| Hipotezy z danych H2, A, B, C | ✅ (do przeliczenia na `dane-final`) |
+| Modele popytu, celu podróży i czasu jazdy + kalibracja i walidacja | 🟡 pierwsza wersja działa; brak typów klientów i agenta-klienta |
+| Silnik symulacji (SimPy) + 3 strategie + wstępne H3 | 🟡 działa; nie jest jeszcze agentowy (brak `src/agents/`) |
+| Wizualizacja 3D: prawdziwy dzień i symulacja obok siebie | ✅ (brak filmu i gotowego `.exe`) |
+| Raport końcowy | 🟡 spis rozdziałów i podział pracy; rozdziały niepisane |
 
-**Czy danych jest już dość?** Mamy 16 pełnych dób (11 dni roboczych, 3 soboty, 2 niedziele/święta), ok. 150 tys. przejazdów. Sezon Veturilo kończy się 30.11 – 1.12 zamrażamy dane (wersja `dane-final`, [instrukcja](docs/raport/powtarzalnosc.md)).
-- Na **dni robocze**: tak, można zaczynać model.
-- Na **weekendy**: za mało (tylko 2 soboty i 2 niedziele, w tym długi weekend Wszystkich Świętych).
-- Na **wpływ pogody**: za mało. Do tej pory było 1–14 °C i tylko ok. 20 godzin z deszczem, więc model nie ma się jeszcze z czego nauczyć, jak działa deszcz czy mróz.
+### Osoba 1: dane dla agentów, emergencja, 3D, raport
 
-Plan: model kalibrujemy na ≥ 2 tygodniach, a sprawdzamy na kolejnym tygodniu, którego model „nie widział”.
+| Zadanie | Stan | Szczegóły |
+|---|---|---|
+| 1a. Dane na pełnym okresie | 🟡 | `processed/` liczy się na wszystkich dniach (16 dób). Notebook `analiza_opisowa` ma liczby z 23.10–2.11. Brak dni mroźnych i deszczowych. Do zrobienia: przeliczyć wszystko na `dane-final`. |
+| 1b. Opis przejazdów i trasy dojazdowe | ✅ | `trip_features.parquet` (pora, typ dnia, dzień zajęć, czas, km, e-rower, bateria, otoczenie startu i celu, dzielnice) i `commute_pairs.parquet` (pary A→B rano / B→A po południu, ≥ 3 dni robocze, regularność). |
+| 1c. Opóźnienie aplikacji | 🟡 | Z zebranych danych nie da się go zmierzyć (feed nie podaje czasu aktualizacji). Gotowe narzędzie do pomiaru w terenie: [`tools/app_latency.py`](tools/app_latency.py). **Pomiar trzeba zrobić do 30.11**; jeśli się nie uda, opóźnienie będzie parametrem scenariusza (0/5/10 min). |
+| 1d. Zmiany ciężarówek operatora | ✅ | `operator_shifts.parquet` + `operator_rule.json` (przy jakim zapełnieniu operator dowozi / zabiera, ile rowerów, w jakich godzinach). |
+| 1e. Bilans dzielnic | ✅ | `district_flows.parquet` (dzielnica × godzina: przyjazdy, wyjazdy, bilans). |
+| 2. Metryki emergencji (`src/metrics/`) | ✅ | Rytm dnia, Gini i krzywa Lorenza pustek, długość pustek, indeks Morana, fale pustek, bilans dzielnic, test z losowym wymieszaniem (1000 razy), `emergence_report()`, `compare()`, 12 testów. Działa na danych i na wyniku symulacji bez zmian w kodzie. |
+| 3. Hipotezy H2, A, B, C | ✅ | Wyniki niżej i w [`docs/wyniki/hipotezy_osoba1.md`](docs/wyniki/hipotezy_osoba1.md). Do zrobienia: przeliczyć na `dane-final`. |
+| 4. Wizualizacja 3D | 🟡 | Gotowe: wczytanie symulacji (`export_sim`), podzielony ekran dane \| model (X), 4 strategie obok siebie z licznikiem utraconych klientów (Z), agenci-klienci (J), decyzje dyspozytora (O), fale pustek (B), mapa „ciśnienia” (Y), pasek zdarzeń, pokaz z komentarzem (T). Do zrobienia: **film** z pokazu, **zbudowany `Veturilo.exe`** (menu do budowania jest), podpięcie „ciśnienia” z agentów Osoby 3, gdy powstanie (teraz liczone ze stanu stacji). |
+| 5. Raport i `run_all.ps1` | 🟡 | `run_all.ps1` ✅, [spis rozdziałów z przypisaniem osób](docs/raport/README.md) ✅, [ograniczenia](docs/raport/ograniczenia.md) i [powtarzalność](docs/raport/powtarzalnosc.md) ✅. Do zrobienia: treść rozdziałów 2, 3, 9, 12. |
 
-## Najważniejsze w 6 punktach (do prezentacji)
+### Osoba 2: klienci, parametry z danych, kalibracja, walidacja
 
-1. **Dane są nasze.** Operator nie udostępnia listy przejazdów. Publikuje tylko, ile rowerów stoi teraz na każdej stacji i jakie mają numery. Zapisujemy to co 5 minut i **sami odtwarzamy przejazdy**: jeśli rower nr 12345 zniknął ze stacji A, a 15 min później pojawił się na stacji B, to ktoś przejechał z A do B.
-2. **Sprawdziliśmy, że to działa.** Jeśli na stacji przybyły 3 rowery, to powinniśmy widzieć 3 przejazdy kończące się na niej. Zgadza się to w 98,5% przypadków. Błędy feedu (rower „znika” na chwilę, skacze GPS) są wykrywane i oznaczane.
-3. **Skala:** ok. 10 tys. przejazdów w dzień roboczy i ok. 7 tys. w weekend. Operator wykonuje ok. 70 przewozów rowerów dziennie.
-4. **Problem pustych stacji jest skupiony** w niewielkiej części miasta (hipoteza H2, opis niżej). Strategia relokacji może więc skupić się na kilkudziesięciu stacjach.
-5. **Wiemy, co działo się wokół:** każda godzina ma pogodę, zmrok, typ dnia, kalendarze uczelni i szkół, wydarzenia i korki. Każda stacja ma opis otoczenia.
-6. **Wizualizacja 3D** pokazuje prawdziwy dzień, a później w tym samym widoku pokaże wynik symulacji. Model i rzeczywistość będzie można porównać obok siebie.
+| Zadanie | Stan | Szczegóły |
+|---|---|---|
+| 1. Modele w silniku | 🟡 | `demand_model.pkl`, `od_model.pkl`, `duration_model.pkl`, `sim_params.json` działają w silniku Osoby 3 (walidacja przez symulację). Symulacja daje 342 przejazdy/h wobec 327 w danych. **Do zrobienia: przeliczyć H3 na tych modelach** (eksperyment z 5.11 jest na roboczych parametrach). |
+| 2. Typy klientów | ⬜ | Reguły (dojeżdżający, student, rekreacyjny, e-rowerzysta, pozostali), udziały typów na stacji × godzinie, kontrola Gaussian Mixture. Dane wejściowe gotowe (`trip_features`). |
+| 3. Cel i czas jazdy osobno dla typów | ⬜ | Model grawitacyjny dla każdego typu; próg 20 min w czasie jazdy (obecny rozkład log-normalny go nie odtwarza, por. hipoteza A); wybór e-roweru zależny od baterii (por. hipoteza B). |
+| 4. Agent-klient (`src/agents/user.py`) | ⬜ | Teraz klient przy pustej stacji z pewnym prawdopodobieństwem idzie do sąsiedniej, inaczej rezygnuje. Brakuje: czekania, wyboru logit, aplikacji z opóźnieniem, pamięci stałych dojeżdżających, testów. |
+| 5. Kalibracja | 🟡 | Optuna dobiera 3 parametry (`empty_retry_probability` = 0,46, `max_walk_km` = 1,2, `full_redirect_probability` = 0,2) na 7 dniach (23–29.10). Do zrobienia: parametry agenta-klienta, ocena kilku metryk naraz, ≥ 2 tygodnie kalibracji, opis pewności parametrów, źródło każdego parametru w `sim_params.json`. |
+| 6. Walidacja wzorców | 🟡 | Jest: przejazdy/h, czas pustych stacji (3,7% w symulacji vs 1,5% w danych), zgodność OD (CPC 0,65), porównanie z modelami bazowymi. Pierwsze porównanie metryk emergencji dane vs symulacja jest w [`emergencja.md`](docs/wyniki/emergencja.md) (1 przebieg). Do zrobienia: tabela „wzorzec – dane – model – czy odtworzony” na tygodniu walidacyjnym; porównanie z wersją uproszczoną (bez typów, aplikacji, pamięci). |
+| 7. Hipotezy H1, H4, H5a, H6 | 🟡 | H1, H4, H5a: pierwsze oszacowania w notebooku [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb) (13 dni). H6: brak w kodzie. Do zrobienia: pełne dane, H6 na stacjach pominiętych przy dopasowaniu. |
+
+### Osoba 3: silnik agentowy, dyspozytor, eksperymenty
+
+| Zadanie | Stan | Szczegóły |
+|---|---|---|
+| Fundament | ✅ | Graf stacji, silnik SimPy, rowery z numerami, ciężarówki z korkami (TomTom), strategie `none`/`operator`/`threshold`, wspólne liczby losowe, 39 testów, wstępne H3, [`docs/simulation.md`](docs/simulation.md). Silnik zapisuje dziennik zdarzeń (`events.parquet`). |
+| 1. Wspólna klasa `Agent` (`src/agents/base.py`) | ⬜ | Folder `src/agents/` jeszcze nie istnieje. Wiadomości przez `simpy.Store` w dzienniku; ustalenie z Osobą 2, kiedy silnik woła klienta; te same wyniki co przed przeróbką. |
+| 2. Agent-stacja | ⬜ | Sygnał „brakuje / nadmiar” z prognozy na 30–60 min, histereza, kolejka czekających. (Losowe przyjścia klientów i rowery jadące między stacjami już są w silniku.) |
+| 3. „Ciśnienie” na grafie (`field.py`) | ⬜ | Rozchodzenie się sygnału na sąsiadów do ok. 1,5 km, jeden parametr zasięgu. |
+| 4. Agent-ciężarówka | 🟡 | Jest: jazda w korkach, bierze tyle rowerów, ile zastanie. Brak: zmian pracy z `operator_shifts.parquet` (dane gotowe), licytacji zadań. |
+| 5. Agent-dyspozytor | 🟡 | Jest: rezerwacja stacji w strategii `threshold`. Brak: przetargu co 5 min (Contract Net), strategii `night`, `predictive`, `pressure`, zapisu decyzji w dzienniku. |
+| 6. Połączenie z klientami Osoby 2 | ⬜ | Wywoływanie agenta-klienta, stali dojeżdżający przez wiele dni, typ klienta i decyzja w wynikach, doba < 1 min (`cProfile`). |
+| 7. Testy | 🟡 | Są: zachowanie liczby rowerów, to samo ziarno = te same wyniki, brak klientów, rezerwacje. Brak: testów przetargu, zmian pracy, kolejki, „ciśnienia”, sytuacji skrajnych (bez rowerów, bardzo dużo ciężarówek). |
+| 8. Eksperymenty | 🟡 | H3 wstępnie (3 strategie × 1–4 ciężarówki × 30 powtórzeń). Brak: H3 dla 6 strategii na modelach Osoby 2, H5b, przejście fazowe (liczba rowerów), efekt stadny (aplikacja), fale pustek wg strategii, zasięg „ciśnienia”, scenariusze „co jeśli”, tornado i Morris (SALib), raport w `docs/experiments/`. |
+| 9. Dokumentacja | 🟡 | `docs/simulation.md` opisuje obecny silnik. Brak: agenci i wiadomości, diagram komunikacji, opis ODD (z Osobą 2). |
+
+---
+
+## Najważniejsze wyniki
+
+1. **Dane są nasze.** Operator nie udostępnia listy przejazdów, tylko stan stacji i numery stojących rowerów. Zapisujemy to co 5 minut i **sami odtwarzamy przejazdy**: rower nr 12345 zniknął ze stacji A, a 15 min później pojawił się na B, więc ktoś przejechał z A do B.
+2. **Odtworzenie działa.** Przyrost rowerów na stacji zgadza się z liczbą odtworzonych przejazdów w 98,5% przypadków. Błędy feedu (rower „znika” na chwilę, skoki GPS) są wykrywane i odrzucane.
+3. **Skala:** ok. 10 tys. przejazdów w dzień roboczy, ok. 7 tys. w weekend. Szczyty o 8:00 (~610/h) i 16:00 (~960/h). Typowy przejazd: 15 min i 1,8 km. Operator robi ok. 70 przewozów dziennie, zwykle po 4 rowery. W obiegu jest ok. 3640 rowerów (operator deklaruje 4566).
+4. **Puste stacje są skupione:** 10% stacji odpowiada za 44% czasu pustek, często to te same stacje i leżą obok siebie (H2).
+5. **Pustki rozchodzą się falami:** połowa przypadków opróżnienia stacji ma sąsiada (≤ 800 m), który opróżnił się w ciągu 20 min; to więcej niż przy przypadkowym rozmieszczeniu (p = 0,001). To emergencja widoczna w danych.
+6. **Operator jeździ we właściwe miejsca, ale nie nadąża** (hipoteza C): dowozi średnio 45 min po opróżnieniu stacji. Jest więc miejsce na lepszą strategię.
+7. **Symulacja odtwarza rytm dnia** (szczyt o 16:00, liczba przejazdów zbliżona), ale ma za dużo pustych stacji i za mało skupione przestrzennie (Moran 0,23 vs 0,59 w danych). To zadanie dla agentów i kalibracji.
+
+**Czy danych jest dość?** Na dni robocze tak. Na weekendy i pogodę za mało: tylko 2 soboty i 2 niedziele, temperatury 1–14 °C, kilkanaście godzin z deszczem. Dane zbieramy do końca sezonu (30.11).
+
+---
+
+## Hipotezy
+
+H1–H6 pochodzą z planu projektu, A–C wynikły z analizy danych.
+
+| | Hipoteza | Stan | Wynik / co dalej | Kto |
+|---|---|---|---|---|
+| **H1** | Pogoda zmienia liczbę wypożyczeń (deszcz, zmrok, temperatura jako „odwrócone U”) | 🟡 | Pierwsze oszacowanie w modelu popytu. Za mało dni deszczowych i mroźnych, żeby rozstrzygnąć. | Osoba 2 |
+| **H2** | Puste stacje to problem niewielkiej części stacji | ✅ | Gini czasu pustek 0,67 (95% CI 0,65–0,70), 10% stacji = 44% pustek; zbiory najczęściej pustych stacji z różnych dni pokrywają się 3× częściej niż losowo. [Top 10 rano](docs/wyniki/top10_puste_rano.csv). | Osoba 1 |
+| **H3** | Lepsza strategia przewożenia zmniejsza utracony popyt; każda kolejna ciężarówka daje mniej | 🟡 | Wstępnie: strategia progowa z 4 ciężarówkami zmniejsza utracony popyt z 380 do 149 klientów/dobę, ale na roboczych parametrach. Do przeliczenia na modelach Osoby 2 i 6 strategiach. [Raport](docs/milestone-2026-11-05/REPORT.md). | Osoba 3 |
+| **H4** | Zajęcia na uczelniach zwiększają popyt przy uczelniach | 🟡 | Model gotowy, ale prawie wszystkie zebrane dni to dni zajęć; trzeba porównać z przerwą świąteczną. | Osoba 2 |
+| **H5a** | W korki ludzie częściej wybierają rower | 🟡 | Pierwsze oszacowanie w modelu popytu (z kontrolą godziny). | Osoba 2 |
+| **H5b** | Korki spowalniają ciężarówki i psują relokację | ⬜ | Silnik umie spowalniać ciężarówki; eksperyment do zrobienia. | Osoba 3 |
+| **H6** | Otoczenie stacji wyjaśnia różnice w popycie | ⬜ | Dane gotowe (`stations` + `station_hourly`); potrzebne do scenariusza „nowa stacja”. | Osoba 2 |
+| **A** | Darmowe 20 minut kształtuje długość jazdy | ✅ | 76% przejazdów mieści się w 20 min; tuż za progiem przejazdów ubywa szybciej (0,72× trendu, CI 0,70–0,74). Model czasu jazdy musi to uwzględnić. | Osoba 1 |
+| **B** | E-rowery to osobna grupa klientów | ✅ | 8% rowerów, ale 19% przejazdów; jeździ się nimi dalej; klienci omijają rozładowane (10% wypożyczeń z baterią < 20% przy 18% takich rowerów na stacjach). | Osoba 1 |
+| **C** | Operator nie nadąża tam, gdzie brakuje rowerów | ✅ | Jeździ we właściwe miejsca (ρ = 0,74), ale kończy tylko 7% pustek w dzień, po medianie 45 min. Reguła operatora dla symulacji: `operator_rule.json`. | Osoba 1 |
+
+---
 
 ## Dane
 
-### 1. Dane zbierane na żywo (`data/`)
+### Zbierane na żywo (`data/`)
 
-Skrypt [`collect.py`](collect.py) uruchamia się sam na serwerach GitHuba (GitHub Actions) i co godzinę dopisuje nowe pomiary do repozytorium. Nikt nie musi mieć włączonego komputera.
+Skrypt [`collect.py`](collect.py) działa sam na GitHub Actions i co godzinę dopisuje pomiary do repozytorium. Zbieranie kończy się z sezonem (30.11).
 
-| Folder | Co tam jest | Jak często | Do czego się przyda |
-|---|---|---|---|
-| `status/` | dla każdej stacji: ile rowerów (w tym elektrycznych), ile wolnych stojaków, czy stacja działa, **numery rowerów**, bateria e-rowerów | co 5 min | **najważniejsze**: z numerów odtwarzamy przejazdy i relokacje, z liczby rowerów puste stacje |
-| `loose/` | rowery zostawione poza stacją (numer, miejsce, bateria) | co 5 min | przejazdy kończące się poza stacją |
-| `info/` | lista stacji: nazwa, położenie, liczba stojaków | raz dziennie | mapa stacji, pojemność w modelu |
-| `system/` | ile rowerów operator deklaruje, cennik | raz dziennie | porównanie z liczbą rowerów faktycznie w użyciu |
-| `traffic_flow/` | prędkość ruchu na 10 głównych ulicach (TomTom) | co 30 min | wskaźnik korków: czy w korki ludzie częściej wybierają rower |
-| `incidents/` | wypadki, zamknięte drogi (TomTom) | co 30 min | jw. |
-
-### 2. Dane statyczne i historyczne (`data/static/`)
-
-Pobrane raz (pogoda jest dociągana na bieżąco). Same nie mówią nic o rowerach, ale **wyjaśniają, dlaczego popyt jest taki, a nie inny**. Pozwolą też budować scenariusze typu „deszczowy dzień” albo „sesja na uczelniach”.
-
-| Plik | Co tam jest | Do czego się przyda |
+| Folder | Co zawiera | Jak często |
 |---|---|---|
-| `calendar.csv` | każdy dzień do 30.06.2027: dzień roboczy/weekend/święto, długie weekendy, ferie, zajęcia i sesje na UW, PW, SGH, WUM (źródła dat: `calendar_sources.md`) | studenci to duża część użytkowników; święta i ferie zmieniają ruch |
-| `events.csv` | mecze Legii, koncerty na Narodowym, imprezy miejskie do końca 2026 | nietypowy ruch przy stadionach |
-| `weather_hourly.parquet` | temperatura, deszcz, wiatr, zachmurzenie co godzinę | wpływ pogody na popyt |
-| `air_quality_hourly.parquet` | smog (PM2.5, PM10, NO₂) co godzinę | czy smog zniechęca do roweru |
-| `osm/` | z OpenStreetMap: lokale, biura, uczelnie, metro, drogi rowerowe, budynki Śródmieścia | opis otoczenia stacji; mapa 3D |
-| `station_network_distance.parquet` | odległość po drogach rowerowych między każdą parą stacji | czas jazdy w symulacji |
-| `population_h3.parquet` | ilu ludzi mieszka w każdym fragmencie miasta | stacje na osiedlach vs w centrum |
-| `transit_stops.parquet` | przystanki i liczba odjazdów autobusów, tramwajów, metra | rower jako dojazd do komunikacji |
-| `elevation.csv` | wysokość terenu przy każdej stacji | pod górkę jeździ się rzadziej (np. skarpa wiślana) |
+| `status/` | każda stacja: liczba rowerów i e-rowerów, wolne stojaki, **numery rowerów**, bateria | co 5 min |
+| `loose/` | rowery zostawione poza stacją | co 5 min |
+| `info/` | lista stacji: nazwa, położenie, liczba stojaków | raz dziennie |
+| `system/` | deklarowana flota, cennik | raz dziennie |
+| `traffic_flow/`, `incidents/` | prędkość ruchu na 10 arteriach, wypadki i zamknięcia dróg (TomTom) | co 30 min |
 
-## Jak przetwarzamy dane (`python -m src.data.build`, ok. 1–2 min)
+### Dane dodatkowe (`data/static/`)
 
-Surowe pomiary to miliony wierszy „stacja X, godzina Y, 7 rowerów, numery …”. `build` zamienia je w tabele gotowe do analizy i do modelu:
+Kalendarz (dni robocze, święta, zajęcia i sesje UW/PW/SGH/WUM, ferie), wydarzenia (mecze, koncerty), pogoda i smog co godzinę, mapa z OpenStreetMap (lokale, biura, uczelnie, metro, drogi rowerowe, budynki), odległości między stacjami po drogach rowerowych, liczba mieszkańców, przystanki komunikacji, wysokość terenu. Źródła dat kalendarza: `data/static/calendar_sources.md`.
 
-1. **Czyszczenie:** usuwa powtórzone pomiary i wyłączone stacje, oznacza podejrzane odczyty.
-2. **Odtworzenie przejazdów:** śledzi każdy numer roweru. Odrzuca pozorne przejazdy: przeskok GPS o kilkaset metrów, rower, który „zniknął” tylko na jeden pomiar, jazdę szybszą niż 30 km/h, „przejazd” dłuższy niż 4 h (to zwykle zabranie roweru do serwisu).
-3. **Relokacje:** gdy 4 lub więcej rowerów naraz przenosi się między tymi samymi stacjami, to nie klienci, tylko samochód operatora.
-4. **Tabele dla modelu:** ile wypożyczeń i zwrotów miała każda stacja w każdej godzinie, kiedy stacje były puste, ile rowerów jest w obiegu.
-5. **Kontekst godzinowy:** do każdej godziny dopisuje pogodę, położenie słońca, typ dnia, kalendarze, wydarzenia i korki.
-6. **Cechy stacji:** dla każdej stacji liczy, co jest w okolicy (lokale, biura, uczelnie w promieniu 300 m, odległość do metra i centrum, mieszkańców w promieniu 500 m).
-7. **Raport jakości** (`processed/quality_report.md`): czy były przerwy w zbieraniu, ile błędów odrzucono, czy bilans rowerów się zgadza.
+### Co robi `python -m src.data.build`
+
+Czyści pomiary → odtwarza przejazdy z numerów rowerów (odrzuca skoki GPS, „mignięcia”, jazdę > 30 km/h, „przejazdy” > 4 h) → wykrywa przewozy operatora (≥ 4 rowery naraz między tymi samymi stacjami) → liczy tabele dla modelu i dane dla agentów → dopisuje kontekst (pogoda, kalendarz, korki) → pisze raport jakości `processed/quality_report.md`.
 
 ### Co powstaje (`processed/`)
 
-Folder nie jest w repozytorium. Każdy odtwarza go u siebie poleceniem `build`.
-
-| Plik | Co zawiera (prościej) | Do czego w symulacji |
+| Plik | Co zawiera | Do czego |
 |---|---|---|
-| `station_hourly.parquet` | każda stacja × każda godzina: ile wypożyczeń, ile zwrotów, ile minut była pusta | **ilu klientów przychodzi na stację** (popyt) |
-| `trips.parquet` | lista wszystkich przejazdów: skąd, dokąd, kiedy, ile trwał, ile km, czy e-rower | **dokąd jadą klienci i jak długo** |
-| `observed_timeseries.parquet` | stan każdej stacji co 5 minut | **od czego startuje symulacja** i z czym porównujemy jej wynik |
-| `rebalancing_observed.parquet` | przewozy rowerów przez operatora | **obecna strategia operatora** – punkt odniesienia dla naszych strategii |
-| `fleet_timeseries.parquet` | ile rowerów jest na stacjach, w drodze, w serwisie | **ile rowerów wpuścić do symulacji** |
-| `empty_periods.parquet` | każdy okres, gdy stacja była pusta | poprawka popytu (patrz niżej) |
-| `context_hourly.parquet` | pogoda, kalendarz, wydarzenia, korki co godzinę | wyjaśnienie zmian popytu, scenariusze |
-| `stations.parquet` | stacje: położenie, liczba stojaków, otoczenie, dzielnica (`district`), typ otoczenia (`land_use`) | wyjaśnienie różnic między stacjami |
-| `trip_features.parquet` | każdy przejazd: pora, typ dnia, dzień zajęć, czas, km, e-rower, bateria, otoczenie startu i celu, dzielnice, czy trasa dojazdowa i jak regularna | **typy klientów** (dojeżdżający, student, rekreacyjny, e-rowerzysta) |
-| `commute_pairs.parquet` | pary stacji dojazdowych (A→B rano, B→A po południu, ≥ 3 dni robocze) i regularność (dni z przejazdem ±15 min) | **stali bywalcy** |
-| `operator_shifts.parquet` | przewozy operatora w każdej godzinie (dni robocze / wolne), godziny pracy | **zmiany ciężarówek** (kiedy, nie ile aut) |
-| `district_flows.parquet` | dzielnica × godzina: przyjazdy, wyjazdy, bilans | „oddychanie miasta” |
-| `daily_check.parquet` | każdy dzień: pokrycie, aktywne stacje, flota, relokacje, „zwijanie sezonu” | które dni brać do kalibracji |
-| `operator_rule.json` | przy jakim zapełnieniu operator dowozi / zabiera, ile rowerów, w jakich godzinach | strategia `operator_rule` |
-| `MANIFEST.json` | wersja danych: zakres dat, liczba dni, sumy SHA-256 plików | powtarzalność (`dane-final`) |
+| `station_hourly` | stacja × godzina: wypożyczenia, zwroty, minuty pustej stacji | popyt |
+| `trips` | wszystkie przejazdy: skąd, dokąd, kiedy, czas, km, e-rower | cel i czas jazdy |
+| `observed_timeseries` | stan każdej stacji co 5 min | start symulacji, porównanie z wynikiem |
+| `rebalancing_observed` | przewozy operatora | strategia `operator` |
+| `fleet_timeseries` | rowery na stacjach, w drodze, w serwisie | wielkość floty w symulacji |
+| `empty_periods` | każdy okres pustej stacji | H2, poprawka popytu |
+| `context_hourly` | pogoda, kalendarz, wydarzenia, korki co godzinę | wyjaśnienie popytu, scenariusze |
+| `stations` | położenie, stojaki, otoczenie, dzielnica, typ otoczenia | różnice między stacjami |
+| `trip_features` | opis każdego przejazdu (typ dnia, otoczenie, bateria, trasa dojazdowa) | typy klientów |
+| `commute_pairs` | stałe trasy dojazdowe i ich regularność | stali bywalcy |
+| `operator_shifts`, `operator_rule.json` | godziny pracy i reguła operatora | zmiany ciężarówek, strategia operatora |
+| `district_flows` | dzielnica × godzina: przyjazdy, wyjazdy, bilans | „oddychanie miasta” |
+| `daily_check` | jakość każdego dnia (pokrycie, flota, relokacje) | wybór dni do kalibracji |
+| `MANIFEST.json` | zakres dat i sumy kontrolne plików | powtarzalność (`dane-final`) |
 
-**Czas we wszystkich plikach jest w UTC** (czas uniwersalny). W `context_hourly` są gotowe kolumny z czasem warszawskim (`local_hour`, `local_date`, `day_type`).
+**Czas we wszystkich plikach jest w UTC.** Czas warszawski: kolumny `local_hour`, `local_date`, `day_type` w `context_hourly`.
 
 <details>
 <summary>Pełna lista kolumn</summary>
@@ -122,261 +195,91 @@ Folder nie jest w repozytorium. Każdy odtwarza go u siebie poleceniem `build`.
 | `rebalancing_observed` | `from_station`, `to_station`, `t_departure`, `t_arrival`, `n_bikes`, `bikes`, `distance_km`, `network_km`, `duration_min` |
 | `fleet_timeseries` | `time`, `at_stations`, `loose_warsaw`, `loose_outside`, `in_use` (< 4 h), `away_long` (> 4 h), `ebikes_parked`, `seen_total`, `set_point_bikes`, `operator_available_bikes` |
 | `empty_periods` | `station_id`, `start`, `end`, `duration_min`, `n_obs`, `censored_end` |
-| `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, `terminal_type`, `share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`, `n_<typ POI>_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `n_transit_stops_300m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m`, `elevation_m` |
+| `stations` | `station_id`, `name`, `lat`, `lon`, `capacity`, `terminal_type`, `district`, `land_use`, `share_empty`, `share_overfull`, `share_inactive`, `mean_bikes`, `n_<typ POI>_300m`, `dist_{metro,university,train_station,center,transit_stop}_m`, `cycleway_m_300m`, `population_500m`, `n_transit_stops_300m`, `departures_{bus,tram,metro,rail,total}_300m`, `bldg_height_mean_300m`, `elevation_m` |
 | `context_hourly` | `time`, `local_date`, `local_hour`, `dow`, `is_weekend`, `day_type`, pogoda (`temperature_2m`, `precipitation`, `rain`, `wind_speed_10m`, `cloud_cover`, …), `pm2_5`, `pm10`, `european_aqi`, `sun_elevation`, `is_dark`, `is_holiday`, `is_long_weekend`, `is_bridge_day`, `school_break`, `{uw,pw,sgh,wum}_period`, `n_uni_classes`, `n_uni_exams`, `n_events`, `n_events_large`, `event_names`, `congestion`, `congestion_max`, `congestion_stable`, `n_corridors`, `n_road_closures`, `n_incidents`, `n_jam_incidents` |
+
+Przykład w Pythonie (tylko prawdziwe przejazdy klientów):
+
+```python
+import pandas as pd
+trips = pd.read_parquet("processed/trips.parquet")
+user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["too_fast"] & ~trips["is_long"]]
+```
 
 </details>
 
-## Modele zachowań, kalibracja i walidacja (`python -m src.model.pipeline`, ok. 10 min)
+---
 
-Jedno polecenie buduje modele, kalibruje je, sprawdza na dniach, których model „nie widział”, i testuje hipotezy H1, H4, H5a. Wyniki trafiają do `processed/model/`, a raport z tabelami i wykresami to notebook [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb). Podział dni ustawia `--calib OD DO --valid OD DO` (domyślnie kalibracja 23–29.10, walidacja 30.10–4.11); `--build` najpierw przebudowuje `processed/`, `--quick` to szybki test łańcucha.
+## Modele, symulacja, metryki, 3D: jak to działa
 
-| Plik (`src/model/`) | Co robi |
+### Modele zachowań (`src/model/`, Osoba 2)
+
+`python -m src.model.pipeline` buduje modele, kalibruje je i sprawdza na dniach, których nie widziały (domyślnie kalibracja 23–29.10, walidacja 30.10–4.11; zmiana: `--calib OD DO --valid OD DO`). Wyniki: `processed/model/`, opis z wykresami: [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb).
+
+- **Popyt** (`demand.py`): ilu chętnych przychodzi na każdą stację w każdej godzinie. Uwzględnia porę dnia, typ dnia, temperaturę i korki; godziny pustej stacji nie zaniżają popytu. Błąd sumy wypożyczeń: +6%, korelacja godzina po godzinie 0,92.
+- **Cel podróży** (`od.py`): dokąd jadą; z danych, wygładzone modelem grawitacyjnym (każdy km zmniejsza szansę wyboru celu 2,2 raza).
+- **Czas jazdy** (`duration.py`): zależy od odległości; e-rowerem o 15% krócej.
+- **Kalibracja i walidacja** (`calibration.py`): Optuna dobiera zachowanie klienta przy pustej / pełnej stacji; walidacja dzień po dniu w silniku symulacji, z modelami bazowymi.
+- **Hipotezy H1, H4, H5a** (`hypotheses.py`).
+
+### Silnik symulacji (`src/simulation/`, Osoba 3)
+
+Symulacja zdarzeń dyskretnych w SimPy. Klienci przychodzą losowo w tempie z modelu popytu, wypożyczają konkretny rower, jadą do celu; przy pustej stacji idą do sąsiedniej albo rezygnują (utracony popyt). Ciężarówki jeżdżą po drogach z korkami z TomTom. Strategie: `none` (nikt nie przewozi), `operator` (odtworzenie prawdziwych przewozów), `threshold` (reakcja poniżej 20% / powyżej 80% zapełnienia). Wynik zapisuje się w tym samym formacie co dane (`observed_timeseries.parquet` itd.) plus `events.parquet`, więc działają na nim metryki i wizualizacja. Instrukcja: [`docs/simulation.md`](docs/simulation.md).
+
+### Pomiar emergencji (`src/metrics/`, Osoba 1)
+
+Emergencja to zjawiska, których nikt nie zaprogramował, a które powstają z zachowania wielu ludzi naraz, np. stacje pustoszejące jedna po drugiej. `python -m src.metrics` liczy te same miary dla danych i symulacji: rytm dnia, skupienie pustek (Gini), długość pustek, skupiska w przestrzeni (indeks Morana), fale pustek, bilans dzielnic oraz test, czy to nie przypadek (losowe wymieszanie). Wyniki: [`docs/wyniki/emergencja.md`](docs/wyniki/emergencja.md).
+
+### Wizualizacja 3D (`unity/`, Osoba 1)
+
+Cała Warszawa w 3D (budynki, Wisła, metro, drogi rowerowe, pogoda, pora dnia), na której odtwarzamy prawdziwy dzień: stacje jako słupki (pusta pulsuje na czerwono), każdy przejazd jako jadący rower, ciężarówki operatora, korki, wydarzenia, utracony popyt. W tym samym widoku wynik symulacji:
+
+| Klawisz | Co pokazuje |
 |---|---|
-| `demand.py` | **model popytu**: regresja ujemna dwumianowa wypożyczeń na stację × godzinę: własny poziom każdej stacji w każdej porze dnia, wspólny profil godzinowy osobno dla dni roboczych i weekendów oraz 3 czynniki wybrane na danych (temperatura z członem kwadratowym, przycięta do zakresu danych, i korki). Godziny pustej stacji są wyłączone przez offset „minuty z rowerem”. Daje λ, czyli średnią liczbę chętnych na godzinę. Pełny model ze wszystkimi czynnikami służy tylko do hipotez. |
-| `od.py` | **cel podróży**: macierz OD z przejazdów + model grawitacyjny (popularność celu × e^(−β·km)); w symulacji macierz wygładzona grawitacją |
-| `duration.py` | **czas jazdy**: log-normalny zależny od odległości, osobno powroty na tę samą stację; czas z danych jako przedział ±5 min |
-| `calibration.py` | **kalibracja** Optuną parametrów klienta (`empty_retry_probability`, `max_walk_km`, `full_redirect_probability`) i **walidacja** w symulacji `src/simulation`: doba po dobie od stanu z północy, przewozy operatora z danych, metryki, modele bazowe (persystencja, średnia historyczna, stan z północy) |
-| `hypotheses.py` | **H1, H4, H5a**: współczynniki z 95% CI (błędy klastrowane po godzinie), test LR członu T² |
-| `pipeline.py` | cały łańcuch jednym poleceniem |
+| **X** | podzielony ekran: prawdziwy dzień \| model tego dnia |
+| **Z** | do 4 strategii obok siebie z licznikiem utraconych klientów |
+| **J** | agenci-klienci: czekają, idą do sąsiedniej stacji, odchodzą (✕) |
+| **O** | decyzje dyspozytora: łuk od ciężarówki do stacji |
+| **B** | fale pustek |
+| **Y** | „ciśnienie”: gdzie brakuje rowerów (czerwony), gdzie jest za dużo (niebieski) |
+| **T** | pokaz z komentarzem (ok. 2 min) do prezentacji |
 
-Wyniki dla symulacji (Osoba 3): `processed/model/demand_model.pkl`, `od_model.pkl`, `duration_model.pkl` (dopasowane na wszystkich dniach) i `sim_params.json` (skalibrowane parametry klienta). W symulacji: `od_model` jako `od_matrix` (OD zależne od pory dnia), `duration_model` jako `ride_time_model` z `ride_sigma` z `sim_params.json`, λ z `demand.rate(station_ids, context_rows)` (przykład: `HourlyRates` w `src/model/calibration.py`).
+Pełne sterowanie i budowanie `.exe`: [`unity/README.md`](unity/README.md).
 
-## Notebooki – co już przeanalizowaliśmy
-
-Oba notebooki czytają gotowe pliki z `processed/` (najpierw trzeba uruchomić `build`). Liczby w nich pochodzą z pierwszych dni zbierania. Po ponownym uruchomieniu przeliczą się na aktualnych danych (wartości poniżej są już przeliczone na 23.10–2.11).
-
-### [`analiza_opisowa.ipynb`](notebooks/analiza_opisowa.ipynb) – jak wygląda system
-
-| Sekcja | Co pokazuje | Co wyszło |
-|---|---|---|
-| 1. Przejazdy w czasie | liczba przejazdów na dzień i na godzinę, dni robocze vs weekend | dzień roboczy ok. **9,9 tys.** przejazdów, sobota 7,5 tys., niedziela 6,9 tys. W dzień roboczy dwa szczyty: rano o 8:00 (~610/h, dojazd do pracy i na uczelnię) i większy po południu o 16:00 (~960/h). W weekend ruch zaczyna się później. |
-| 2. Czas i długość | rozkład czasu i dystansu przejazdu | typowy przejazd to **15 min i 1,8 km**. 73% przejazdów mieści się w 20 min, które są darmowe. |
-| 3. Relokacje operatora | kiedy, skąd i dokąd operator przewozi rowery | ok. **70 przewozów dziennie**, zwykle po 4 rowery |
-| 4. Rowery poza stacjami | gdzie ludzie zostawiają rowery poza stacją | ok. 3% przejazdów, zwykle blisko stacji |
-| 5. Flota | ile rowerów jest faktycznie w obiegu | operator deklaruje 4566 rowerów, a w obiegu jest ok. **3640**; 300–400 stale w serwisie lub magazynie |
-| 6. E-rowery | jak często wybierane są rowery elektryczne | to ok. 8% rowerów na stacjach, ale **19% przejazdów**: ludzie wybierają je ponad dwa razy chętniej |
-
-### [`puste_i_przepelnione_stacje.ipynb`](notebooks/puste_i_przepelnione_stacje.ipynb) – test hipotezy H2
-
-1. Dla każdej stacji liczy, **przez jaki procent czasu była pusta**, a przez jaki przepełniona (więcej rowerów niż stojaków).
-2. Układa stacje od najrzadziej do najczęściej pustych i rysuje **krzywą Lorenza** z **współczynnikiem Giniego**. To ta sama miara, którą opisuje się nierówność dochodów: 0 znaczy, że każda stacja jest pusta tak samo często, 1 znaczy, że cały problem dotyczy jednej stacji.
-3. Sprawdza **stabilność wyniku**: liczy go osobno dla każdego dnia i z pominięciem po kolei każdego dnia. Dzięki temu wiemy, że wynik nie bierze się z jednego nietypowego dnia.
-4. Rysuje **mapę stacji często pustych**.
-
-## Hipotezy
-
-Hipotezy H1–H6 pochodzą z planu projektu (issues #1–#3). Trzy dodatkowe (oznaczone literami A–C) wynikły z analizy zebranych danych.
-
-### Podsumowanie
-
-| | Hipoteza | Stan | Czym badamy |
-|---|---|---|---|
-| **H1** | Pogoda wpływa na liczbę przejazdów | pierwszy sygnał, za mało danych | model popytu |
-| **H2** | Puste stacje to problem niewielkiej części stacji | ✅ wstępnie potwierdzona | dane (notebook) |
-| **H3** | Lepsza strategia relokacji zmniejsza utracony popyt | ✅ eksperyment wstępny; do kalibracji | symulacja DES |
-| **H4** | Zajęcia na uczelniach zwiększają popyt przy uczelniach | ⏳ do zbadania | model popytu |
-| **H5a** | W korki ludzie częściej wybierają rower | ⏳ do zbadania | model popytu |
-| **H5b** | Korki spowalniają ciężarówki i osłabiają relokację | ⏳ do zbadania | symulacja DES |
-| **H6** | Otoczenie stacji wyjaśnia różnice w popycie | ⏳ do zbadania | model popytu |
-| **A** | Darmowe 20 minut kształtuje długość jazdy | ✅ widoczne w danych | dane |
-| **B** | E-rowery to osobna grupa klientów | ✅ widoczne w danych | dane |
-| **C** | Operator nie nadąża tam, gdzie najczęściej brakuje rowerów | ✅ potwierdzona w danych | dane |
-
-### H1. Pogoda
-
-**Hipoteza:** deszcz i zmrok zmniejszają liczbę przejazdów bardziej niż sama temperatura. Temperatura działa jak „odwrócone U”: za zimno i za gorąco zniechęca do roweru.
-
-**Stan:** pierwszy sygnał. W niedzielę 25.10 po rozpoczęciu deszczu (ok. 18:00) przejazdów było kilka razy mniej niż o tej porze w sobotę. Danych jest jednak za mało: ok. 20 godzin z deszczem i temperatury tylko 1–14 °C.
-
-**Do zbadania:** wpływ opadu, temperatury i zmroku w modelu popytu (regresja ujemna dwumianowa), z 95% przedziałami ufności i testem członu kwadratowego temperatury. Potrzeba więcej dni deszczowych i mroźnych.
-
-**Po co:** scenariusze „deszczowy dzień” i „krótki zimowy dzień” w symulacji.
-
-### H2. Koncentracja pustych stacji
-
-**Hipoteza:** brak rowerów nie rozkłada się równo po mieście. Niewielka część stacji odpowiada za większość czasu, w którym stacje są puste.
-
-**Stan:** ✅ potwierdzona na 16 dniach ([wyniki](docs/wyniki/hipotezy_osoba1.md), [notebook](notebooks/puste_i_przepelnione_stacje.ipynb)). Gini czasu pustek 0,67 (95% bootstrap po dniach 0,65–0,70; bez jednego dnia 0,67–0,68). 10% najczęściej pustych stacji odpowiada za 44% czasu pustek. Często puste są w dużej mierze te same stacje: zbiory „10% najczęściej pustych” z dwóch dni pokrywają się 3× bardziej niż przy losowym wyborze (Jaccard 0,16 wobec 0,05). Lista 10 stacji najczęściej pustych w porannym szczycie (do obserwacji w terenie): [`top10_puste_rano.csv`](docs/wyniki/top10_puste_rano.csv).
-
-**Do zbadania:** przeliczyć na wersji `dane-final`.
-
-**Po co:** strategia relokacji może skupić się na kilkudziesięciu stacjach zamiast na wszystkich 340.
-
-### H3. Strategie relokacji
-
-**Hipoteza:** lepsza strategia przewożenia rowerów wyraźnie zmniejsza utracony popyt (klientów, którzy odchodzą od pustej stacji), a każda kolejna ciężarówka daje coraz mniejszy zysk.
-
-**Stan:** ✅ wykonano wstępne porównanie 3 strategii × 1–4 ciężarówki × 30 replikacji. [Raport z 95% CI, Wilcoxonem i frontem Pareto](docs/milestone-2026-11-05/REPORT.md). Dla strategii progowej z 4 ciężarówkami średni utracony popyt spadł z 379,8 do 149,4 na dobę w przyjętym modelu. Popyt i OD są estymatami roboczymi, a parametry jazdy i agentów wymagają kalibracji; wynik nie rozstrzyga jeszcze H3 dla rzeczywistego Veturilo.
-
-**Do zbadania:** porównanie strategii (brak, obecna strategia operatora, progowa, nocna, predykcyjna) z 1–4 ciężarówkami. Każdy wariant w 30 powtórzeniach ze wspólnymi liczbami losowymi, wynik ze średnią i 95% przedziałem ufności, porównanie testem Wilcoxona. Wynik to wykres „utracony popyt vs kilometry ciężarówek”.
-
-### H4. Kalendarz akademicki i szkolny
-
-**Hipoteza:** w dni zajęć popyt na stacjach w pobliżu uczelni jest wyraźnie wyższy niż w dni wolne od zajęć.
-
-**Stan:** ⏳ do zbadania. Kalendarze UW, PW, SGH, WUM i szkół są gotowe (`data/static/calendar.csv`).
-
-**Do zbadania:** interakcja „dzień zajęć × stacja przy uczelni” w modelu popytu. Najlepiej porównać okres zajęć z przerwą świąteczną albo sesją, bo na razie prawie wszystkie zebrane dni to dni zajęć.
-
-### H5. Korki
-
-**H5a. Hipoteza:** przy większych korkach ludzie częściej wybierają rower.
-**Do zbadania:** wskaźnik korków z TomTom w modelu popytu, z kontrolą godziny, żeby nie pomylić efektu korka z efektem szczytu.
-
-**H5b. Hipoteza:** korki spowalniają ciężarówki operatora, więc relokacja działa gorzej.
-**Do zbadania:** scenariusz w symulacji z wolniejszymi ciężarówkami.
-
-**Stan:** ⏳ do zbadania. Dane o ruchu z TomTom są zbierane co 30 minut.
-
-### H6. Otoczenie stacji
-
-**Hipoteza:** to, co jest wokół stacji (biura, uczelnie, lokale, metro, liczba mieszkańców), wyjaśnia większość różnic w popycie między stacjami. Stacje „biurowe” mają szczyt rano, a „restauracyjne” wieczorem.
-
-**Stan:** ⏳ do zbadania. Dane są gotowe (`station_hourly` + `stations`).
-
-**Do zbadania:** cechy otoczenia × pora dnia w modelu popytu, sprawdzone na stacjach pominiętych przy dopasowaniu modelu (leave-stations-out).
-
-**Po co:** model popytu, który przewidzi ruch także dla nowej, hipotetycznej stacji.
-
-### A. Darmowe 20 minut
-
-**Hipoteza:** darmowe pierwsze 20 minut w cenniku kształtuje to, jak długo ludzie jeżdżą.
-
-**Stan:** ✅ widoczne w danych. 76% przejazdów kończy się w ciągu 20 minut. Czas ma dokładność ±5 min, więc porównujemy kroki po 5 min: tuż za granicą darmowego czasu przejazdów ubywa wyraźnie szybciej niż obok – 0,72× tego, co wynika z trendu sąsiednich kroków (95% bootstrap po dniach 0,70–0,74).
-
-**Wniosek dla modelu:** czasu jazdy nie można losować z prostego rozkładu. Musi uwzględniać ten próg.
-
-### B. E-rowery
-
-**Hipoteza:** e-rowery to osobna grupa klientów.
-
-**Stan:** ✅ widoczne w danych. E-rowery to 8% rowerów na stacjach, ale 19% przejazdów.
-
-**Wynik:** e-rowerem jeździ się dalej (mediana 1,97 vs 1,90 km, Mann–Whitney p < 0,001) i klienci omijają rozładowane: tylko 10% wypożyczeń ma baterię < 20%, choć wśród e-rowerów na stacjach rozładowanych jest 18% (p < 0,001). Im więcej baterii, tym dłuższa jazda (1,57 km przy < 20% → 2,10 km przy > 80%).
-
-**Wniosek dla modelu:** e-rowery modelujemy jako osobny strumień popytu.
-
-### C. Relokacje operatora
-
-**Hipoteza:** operator nie nadąża z dowożeniem rowerów tam, gdzie najczęściej ich brakuje.
-
-**Stan:** ✅ potwierdzona ([wyniki](docs/wyniki/hipotezy_osoba1.md)). Operator jeździ we właściwe miejsca (Spearman: udział pustek stacji vs dowozy ρ = 0,74; 43% dowozów trafia do 20% najczęściej pustych stacji), ale nie nadąża: ciężarówka kończy tylko 7% okresów pustej stacji w dzień (11% pustek ≥ 30 min), a gdy już dowozi, to po medianie 45 min od opróżnienia. Reguła operatora dla symulacji (dowóz przy zapełnieniu ok. 12%, zabranie przy ok. 217%, 4 rowery na kurs, godziny pracy): `processed/operator_rule.json`.
-
-**Po co:** jeśli się potwierdzi, jest miejsce na lepszą strategię, którą przetestujemy w symulacji (H3).
-
-## Wizualizacja 3D (Unity)
-
-Interaktywna scena 3D Warszawy, w której **odtwarzamy wybrany prawdziwy dzień** w przyspieszonym tempie. Korzysta ze wszystkich zebranych danych:
-
-| Co widać | Skąd |
-|---|---|
-| **stacje** jako słupki w trzech widokach: *zapełnienie* (pusta pulsuje na czerwono), *bilans 1 h* (które stacje tracą, a które zyskują rowery), *H2* (gdzie najczęściej brakuje rowerów) | stan stacji co 5 min |
-| **każdy przejazd** jako świecący rower jadący po drogach rowerowych (e-rowery innym kolorem), rowery zostawione poza stacjami | odtworzone przejazdy, `data/loose` |
-| **łuki OD**: najczęstsze trasy ostatniej godziny; **ślady całego dnia** narastające do wieczora (główne korytarze rowerowe) | przejazdy |
-| **utracony popyt**: heksagony rosnące tam, gdzie klienci przychodzą do pustej stacji (szacunek) | stan stacji + popyt z `station_hourly` |
-| **ciężarówki operatora** z liczbą przewożonych rowerów | relokacje |
-| **miasto:** ok. 180 tys. budynków całej Warszawy z oknami, Wisła, mosty, zieleń i ok. 90 tys. drzew, główne ulice z latarniami, metro M1/M2, tory, drogi rowerowe, granica miasta | OpenStreetMap |
-| **pora dnia i pogoda:** słońce, zmierzch (zapalają się okna i latarnie), gwiazdy, cienie chmur sunące z wiatrem, mgła, deszcz i mokre, błyszczące ulice | Open-Meteo |
-| **grafika (URP):** bloom, tonemapping, SSAO, Wisła odbijająca miasto i światła | – |
-| **korki i utrudnienia** na 10 arteriach, **wydarzenia** (słup światła nad stadionem), **mieszkańcy** (heksagony) | TomTom, `events.csv`, Kontur |
-| **panele:** zegar, pogoda, jakość powietrza, KPI, wykresy dnia, lista stacji pustych najdłużej, karta stacji z otoczeniem | wszystko powyżej |
-
-| **symulacja DES** w tym samym widoku: **X** – prawdziwy dzień \| model tego dnia; **Z** – do 4 strategii relokacji obok siebie z licznikiem utraconych klientów; **N** – główny widok: dane / model | `python -m src.viz.export_sim` |
-| **agenci modelu** (J): klienci czekają przy pustej stacji, idą do sąsiedniej, odchodzą z ✕; kolor = typ klienta | `events.parquet` z symulacji |
-| **decyzje dyspozytora** (O): łuk od ciężarówki do stacji, która potrzebuje rowerów | zdarzenia ciężarówek |
-| **fale pustek** (B): stacja pustoszeje, a chwilę później sąsiednia – pierścienie i łuki „kto kogo zaraził” | `src.metrics` (dane i model) |
-| **ciśnienie** (Y): mapa ciepła – czerwony = mniej rowerów niż zwykle, niebieski = więcej; widać, jak rano osiedla tracą rowery, a centrum zyskuje | stan stacji |
-| **pasek „na żywo”**: stacja pusta, ciężarówka dowiozła, fala pustek, klienci odchodzą (model); **trasy dojazdowe** innym kolorem | wszystko powyżej |
-
-**Kliknięcie roweru lub ciężarówki** – kamera jedzie za nim (skąd, dokąd, dystans, czas). **X** dzieli ekran na pół: prawdziwy dzień i model tego samego dnia (albo inny dzień – Shift + , . zmienia prawy widok).
-
-Klawisz **T** uruchamia **pokaz z komentarzem** (ok. 2 min): kamera, widoki i napisy prowadzą przez cały dzień, od porannego szczytu przez hipotezę H2 do zmierzchu. Liczby w napisach pochodzą z danych.
-
-Po co: wizualizacja pozwala **zobaczyć** problem (np. jak rano pustoszeją stacje na osiedlach, a zapełnia się centrum). Docelowo pokaże też wynik symulacji w tym samym widoku, obok prawdziwego dnia.
-
-**Jak uruchomić:**
-1. `python -m src.viz.export` – dane z `processed/` → pliki JSON w `unity/Assets/StreamingAssets/veturilo/` (ok. 1 MB na dzień); potem `python -m src.viz.export_sim <katalogi przebiegów>` – wybrane przebiegi symulacji (do 4 strategii jednej daty).
-2. Unity Hub → *Add project from disk* → folder `unity/` (Unity 6000.0.85f1) → scena `Assets/Scenes/Veturilo.unity` → **Play**.
-3. Do prezentacji bez edytora: menu **Veturilo → Zbuduj aplikację (Windows)** → `unity/Build/Veturilo.exe`.
-
-Instrukcja, sterowanie i scenariusz pokazu: [`unity/README.md`](unity/README.md).
+---
 
 ## Pliki w repozytorium
 
 ```
-collect.py                  zbieranie danych na żywo (Nextbike co 5 min, TomTom co 30 min)
-.github/workflows/collect.yml   automatyczne uruchamianie collect.py na GitHubie
-requirements.txt            potrzebne biblioteki Pythona
-
-src/data/                   przygotowanie danych
-  fetch_static.py           pobranie danych dodatkowych do data/static/
-  calendar_data.py          daty roku szkolnego i akademickiego (ze źródłami)
-  events_data.py            lista wydarzeń w Warszawie (ze źródłami)
-  osm.py                    pobranie mapy z OpenStreetMap
-  gtfs.py                   rozkłady jazdy ZTM -> liczba odjazdów z przystanków
-  population.py             gęstość zaludnienia
-  network.py                odległości między stacjami po drogach rowerowych
-  build.py                  główny skrypt: dane surowe -> processed/ + raport jakości
-  agents.py                 dane dla agentów: opis przejazdów, trasy dojazdowe, zmiany operatora, dzielnice
-  manifest.py               wersja danych (MANIFEST.json, dane-final)
-  raw.py                    odczyt surowych plików z data/
-  trips.py                  odtwarzanie przejazdów i relokacji z numerów rowerów
-  aggregates.py             tabele: stacja × godzina, puste stacje, flota, bilans
-  context.py                kontekst godzinowy (pogoda, słońce, kalendarz, wydarzenia, korki)
-  features.py               opis otoczenia stacji
-  config.py                 ścieżki i stałe
-src/model/                  modele zachowań, kalibracja, walidacja, hipotezy
-src/metrics/                emergencja (te same metryki dla danych i modelu) i hipotezy H2, A, B, C
-src/viz/export.py           przygotowanie danych dla wizualizacji 3D
-src/viz/export_sim.py       wynik symulacji -> wizualizacja 3D (agenci, dyspozytor, fale pustek)
-tools/app_latency.py        ręczny pomiar opóźnienia aplikacji (do 30.11)
-docs/                       wyniki (wyniki/), kontrakty, raport końcowy (raport/)
+collect.py                  zbieranie danych na żywo (GitHub Actions: .github/workflows/collect.yml)
 run_all.ps1                 cały łańcuch jednym poleceniem (-Quick)
+run_milestone.ps1           odtworzenie kamienia milowego z 5.11
+requirements*.txt           biblioteki Pythona
 
-notebooks/                  analizy (opis wyżej)
-unity/                      projekt wizualizacji 3D (opis w unity/README.md)
-data/                       dane zebrane na żywo + data/static/ (dane dodatkowe)
-processed/                  wyniki build (tworzone lokalnie, nie ma ich w repozytorium)
-```
-
-## Jak uruchomić
-
-```bash
-git pull                                                     # nowe dane dochodzą co godzinę
-pip install -r requirements.txt                              # raz
-python -m src.data.fetch_static --only weather air_quality   # pogoda z ostatnich dni
-python -m src.data.build                                     # -> processed/
-python -m src.model.pipeline                                 # -> processed/model/ (wyniki w notebooks/modele_walidacja.ipynb)
-python -m src.data.manifest                                  # -> processed/MANIFEST.json (wersja danych)
-python -m src.metrics.hypotheses                             # -> docs/wyniki/hipotezy_osoba1.md (H2, A, B, C)
-python -m src.metrics processed --sim <przebieg symulacji>   # -> docs/wyniki/emergencja.md (dane vs model)
-python -m src.viz.export                                     # -> dane dla Unity (opcjonalnie)
-python -m src.viz.export_sim <przebiegi symulacji>           # -> model w Unity (opcjonalnie)
-```
-
-Albo wszystko naraz: `./run_all.ps1` (Windows, PowerShell).
-
-Przykład wczytania danych w Pythonie:
-
-```python
-import pandas as pd
-hourly = pd.read_parquet("processed/station_hourly.parquet")    # popyt: stacja × godzina
-ctx = pd.read_parquet("processed/context_hourly.parquet")        # pogoda, kalendarz, ...
-panel = hourly.merge(ctx, left_on="hour", right_on="time", how="left")
-
-trips = pd.read_parquet("processed/trips.parquet")
-user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["too_fast"] & ~trips["is_long"]]
+src/data/                   Osoba 1: dane surowe -> processed/ (build.py), dane dla agentów (agents.py),
+                            odtwarzanie przejazdów (trips.py), kontekst, otoczenie stacji, wersja danych (manifest.py)
+src/metrics/                Osoba 1: metryki emergencji (emergence.py), hipotezy H2, A, B, C (hypotheses.py)
+src/model/                  Osoba 2: popyt, cel podróży, czas jazdy, kalibracja, walidacja, H1/H4/H5a
+src/simulation/             Osoba 3: silnik SimPy, strategie, eksperymenty, weryfikacja
+src/agents/                 Osoba 2 i 3: agenci (do utworzenia)
+src/viz/                    Osoba 1: eksport danych i symulacji do Unity
+tools/app_latency.py        pomiar opóźnienia aplikacji w terenie (do 30.11)
+tests/                      testy (pytest)
+notebooks/                  analiza opisowa, puste stacje (H2), modele i walidacja
+docs/                       wyniki (wyniki/), kamień milowy 5.11, kontrakty, raport (raport/)
+unity/                      projekt wizualizacji 3D
+data/                       dane zbierane na żywo + data/static/ (dane dodatkowe)
+processed/                  wyniki build (lokalnie, poza repozytorium)
 ```
 
 <details>
 <summary>Zbieranie danych – szczegóły techniczne</summary>
 
-- Workflow [`.github/workflows/collect.yml`](.github/workflows/collect.yml) działa łańcuchowo: każdy run mierzy co 5 min przez 57 min i uruchamia następny; cron co godzinę wznawia łańcuch, gdyby się przerwał. Wymaga publicznego repozytorium i uprawnień *Read and write* dla workflow.
+- Workflow [`collect.yml`](.github/workflows/collect.yml) działa łańcuchowo: każdy run mierzy co 5 min przez 57 min i uruchamia następny; cron co godzinę wznawia łańcuch, gdyby się przerwał. Wymaga publicznego repozytorium i uprawnień *Read and write* dla workflow. **1.12: wyłączyć cron** (patrz [powtarzalność](docs/raport/powtarzalnosc.md)).
 - Ręczne uruchomienie: Actions → *Zbieranie danych Veturilo* → *Run workflow* (`iterations = 1` – test, `0` – pełna godzina).
 - Kontrola raz w tygodniu: brak czerwonych runów w Actions i ciągłość commitów `Dane ...`.
-- TomTom wymaga sekretu `TOMTOM_API_KEY` (pomiar co 30 min mieści się w darmowym limicie). 26.10 dwa punkty TomTom przeniesiono na główne jezdnie; wskaźnik korków łączy je z poprzednikami.
-- `fetch_static` pomija gotowe pliki (`--force KROK` tworzy ponownie); kroki: `calendar events weather air_quality elevation population gtfs osm`. Grafy dróg OSM (~150 MB, poza repo): `--only osm --force osm`. Podkład mapy (`basemap.parquet`) i policzone trasy wizualizacji (`viz_routes_*.parquet`) są w repo – graf jest potrzebny tylko do tras nowych par stacji.
-- Poza repozytorium: `processed/`, `data/static/cache/`, grafy i cache w `data/static/osm/`, dane eksportu w `unity/Assets/StreamingAssets/veturilo/`.
+- TomTom wymaga sekretu `TOMTOM_API_KEY`. 26.10 dwa punkty TomTom przeniesiono na główne jezdnie; wskaźnik korków łączy je z poprzednikami.
+- `fetch_static` pomija gotowe pliki (`--force KROK` tworzy ponownie); kroki: `calendar events weather air_quality elevation population gtfs osm`. Grafy dróg OSM (~150 MB, poza repo): `--only osm --force osm`. Podkład mapy i trasy wizualizacji są w repo.
+- Poza repozytorium: `processed/`, `data/static/cache/`, grafy i cache w `data/static/osm/`, eksport w `unity/Assets/StreamingAssets/veturilo/`.
 
 </details>
