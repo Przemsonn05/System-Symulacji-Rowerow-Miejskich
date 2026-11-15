@@ -55,6 +55,14 @@ Jeden wiersz = jedno zdarzenie. Wizualizacja 3D (`python -m src.viz.export_sim`)
 | `signal_on`, `signal_off` | **nowe** | czerwony sygnał „potrzebuję rowerów” nad stacją |
 | `task_announced`, `bid`, `task_awarded` | **nowe** | linia od stacji, która potrzebuje rowerów, do ciężarówki z zadaniem (dziś liczona z kolejności `truck_*`) |
 
+### Przykładowy przebieg (do sprawdzenia formatu)
+
+[`docs/przyklad_przebiegu/`](przyklad_przebiegu/) – pierwsze 12 h przebiegu `operator_2 / seed_1000` (5.11) z dopisanymi **wszystkimi nowymi** typami zdarzeń i kolumną `pressure`. Wartości nowych zdarzeń są umowne (losowane), liczy się format. Tworzy go `python tools/przyklad_przebiegu.py <katalog przebiegu>`.
+
+- `task_awarded`: `station_id` = skąd zabrać rowery, `to_station` = dokąd dowieźć, `truck_id`, `n_bikes`; dodatkowo `task_id` (wspólne dla `task_announced` / `bid` / `task_awarded`) i `cost_min` w `bid`.
+- `user_walk` **zastępuje** `walk_to_alternative` (silnik zapisuje jedno albo drugie, inaczej 3D pokaże dwa ludziki). `lost_demand` zostaje obok `user_leave` – z niego liczy się licznik utraconych klientów.
+- Braki w kolumnach nullable (`pd.NA`, `Int64`, `string`, `boolean`) są obsługiwane przez eksport 3D (test `tests/test_export_sim.py`).
+
 ### `station_timeseries.parquet`
 
 Co 5 min: `time`, `station_id`, `bikes`, `capacity`, `docks`, `is_empty`, `is_overfull` (jak dziś) + **nowa** kolumna `pressure` ∈ [−1, 1] (−1 = brakuje rowerów, +1 = za dużo; sygnał stacji). Bez niej 3D liczy ciśnienie z zapełnienia.
@@ -86,3 +94,4 @@ Eksport: `python -m src.viz.export_sim <katalogi przebiegów>` (do 4 przebiegów
 ## Historia
 
 - 2026-11-08 – wersja robocza sekcji 2 i 3 (Osoba 1).
+- 2026-11-15 – przykładowy przebieg z nowymi zdarzeniami agentów (`docs/przyklad_przebiegu/`), doprecyzowane pola `task_awarded` i `user_walk` (Osoba 1).

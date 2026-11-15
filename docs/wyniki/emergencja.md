@@ -4,23 +4,23 @@ Wygenerowane przez `python -m src.metrics`. Wszystkie metryki liczone z tabel st
 
 | metryka | dane | symulacja |
 |---|---|---|
-| dni | 16 | 1 |
-| przejazdy / dzień roboczy | 9734 | 8593 |
+| dni | 23 | 1 |
+| przejazdy / dzień roboczy | 8637 | 8593 |
 | godzina szczytu | 16 | 16 |
 | Gini pustek | 0.67 | 0.806 |
-| 10% stacji = udział pustek | 0.44 | 0.58 |
-| nigdy pusta | 0.277 | 0.678 |
+| 10% stacji = udział pustek | 0.443 | 0.58 |
+| nigdy pusta | 0.242 | 0.678 |
 | pustka: mediana [min] | 25 | 25 |
-| pustka: p90 [min] | 90 | 92.5 |
-| Moran I (pustki) | 0.589 | 0.228 |
+| pustka: p90 [min] | 95 | 92.5 |
+| Moran I (pustki) | 0.606 | 0.228 |
 | Moran p | 0.001 | 0.001 |
-| chwile pustoszenia / dzień | 231 | 484 |
-| w fali (z sąsiadem) | 0.498 | 0.616 |
-| fale ≥ 3 stacje / dzień | 13.9 | 23 |
+| chwile pustoszenia / dzień | 182 | 484 |
+| w fali (z sąsiadem) | 0.474 | 0.616 |
+| fale ≥ 3 stacje / dzień | 10.3 | 23 |
 | największa fala | 42 | 77 |
-| fale vs inny dzień (×) | 1.07 | nan |
-| p (inny dzień) | 0.015 | nan |
-| fale vs zamiana miejsc (×) | 1.1 | 1.06 |
+| fale vs inny dzień (×) | 1.12 | nan |
+| p (inny dzień) | 0.000999 | nan |
+| fale vs zamiana miejsc (×) | 1.07 | 1.06 |
 | p (zamiana miejsc) | 0.000999 | 0.103 |
 
 ## Jak czytać
@@ -34,12 +34,12 @@ Wygenerowane przez `python -m src.metrics`. Wszystkie metryki liczone z tabel st
 
 | model zerowy | statystyka | dane | średnia modelu | 95% modelu | × | p |
 |---|---|---|---|---|---|---|
-| inny_dzien | linked_share | 0.499 | 0.468 | 0.491 | 1.07 | 0.015 |
-| inny_dzien | n_cascades_ge3 | 222 | 210 | 231 | 1.05 | 0.206 |
-| inny_dzien | mean_size_ge2 | 3.6 | 3.36 | 3.56 | 1.07 | 0.030 |
-| zamiana_miejsc | linked_share | 0.499 | 0.454 | 0.473 | 1.10 | 0.001 |
-| zamiana_miejsc | n_cascades_ge3 | 222 | 186 | 205 | 1.19 | 0.003 |
-| zamiana_miejsc | mean_size_ge2 | 3.6 | 3.55 | 3.79 | 1.01 | 0.358 |
+| inny_dzien | linked_share | 0.477 | 0.425 | 0.446 | 1.12 | 0.001 |
+| inny_dzien | n_cascades_ge3 | 235 | 219 | 242 | 1.07 | 0.138 |
+| inny_dzien | mean_size_ge2 | 3.56 | 3.09 | 3.25 | 1.15 | 0.001 |
+| zamiana_miejsc | linked_share | 0.477 | 0.446 | 0.462 | 1.07 | 0.001 |
+| zamiana_miejsc | n_cascades_ge3 | 235 | 211 | 231 | 1.11 | 0.029 |
+| zamiana_miejsc | mean_size_ge2 | 3.56 | 3.5 | 3.73 | 1.02 | 0.336 |
 
 ## Testy fal: symulacja
 

@@ -38,6 +38,11 @@ STRATEGY_PL = {"none": "bez relokacji", "operator": "operator (odtworzenie)", "t
                "auction": "aukcja / dyspozytor"}
 
 
+def user_type_code(v):
+    """Kod typu klienta dla 3D; brak (None, NaN, pd.NA) = 0."""
+    return 0 if v is None or pd.isna(v) else USER_TYPES.get(str(v), 0)
+
+
 def _read(run, name):
     p = Path(run) / f"{name}.parquet"
     return pd.read_parquet(p) if p.exists() else None
@@ -114,9 +119,12 @@ def dispatcher_tasks(ev, sidx):
     if "task_awarded" in set(ev["event"]):
         aw = ev[ev["event"] == "task_awarded"]
         for r in aw.itertuples():
-            tasks.append({"t0": r.minute, "t1": r.minute + 30, "truck": int(r.truck_id),
-                          "pick": r.station_id, "drop": getattr(r, "to_station", r.station_id), "n": 0})
-        return tasks
+            drop = getattr(r, "to_station", None)
+            n = getattr(r, "n_bikes", None)
+            tasks.append({"t0": r.minute, "t1": r.minute + 30, "truck": int(r.truck_id), "pick": r.station_id,
+                          "drop": r.station_id if drop is None or pd.isna(drop) else drop,
+                          "n": 0 if n is None or pd.isna(n) else int(n)})
+        return [x for x in tasks if x["pick"] in sidx and x["drop"] in sidx]
     t = ev[ev["event"].isin(["truck_departure", "truck_arrival", "truck_load", "truck_unload"])]
     for tid, g in t.sort_values(["truck_id", "minute"], kind="stable").groupby("truck_id"):
         cur = None
@@ -149,7 +157,7 @@ def agents_block(ev, start_min_to_sec, sidx, net=None, walk_kmh=4.5):
          "arrT": [], "arrSt": []}
     if ev is None or ev.empty:
         return a
-    utype = (lambda r: USER_TYPES.get(str(getattr(r, "user_type", "") or ""), 0)) if "user_type" in ev else (lambda r: 0)
+    utype = (lambda r: user_type_code(getattr(r, "user_type", None))) if "user_type" in ev else (lambda r: 0)
     by_req = {}
     for r in ev[ev["request_id"].notna()].itertuples():
         by_req.setdefault(r.request_id, []).append(r)
@@ -240,7 +248,7 @@ def export_run(run_dir, out, order, real_days, bike_router_pairs, truck_router_p
     utype = np.zeros(len(u), int)
     if ev is not None and "user_type" in ev and "request_id" in u:
         types = ev.dropna(subset=["request_id"]).drop_duplicates("request_id").set_index("request_id")["user_type"]
-        utype = u["request_id"].map(types).fillna("").map(lambda v: USER_TYPES.get(str(v), 0)).to_numpy()
+        utype = u["request_id"].map(types).map(user_type_code).to_numpy()
 
     legs = truck_legs(ev, start, sidx) if ev is not None and len(ev) else pd.DataFrame(columns=["truck", "dep", "arr", "from", "to", "n"])
     truck_router_pairs.update(zip(legs["from"], legs["to"]))

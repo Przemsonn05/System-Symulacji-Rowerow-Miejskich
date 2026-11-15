@@ -9,14 +9,14 @@ Gdy model zachowuje się jak prawdziwe miasto, sprawdzamy na nim to, czego nie d
 2. **Od czego zależy liczba wypożyczeń?** Pora dnia, dzień tygodnia, pogoda, zajęcia na uczelniach, korki, otoczenie stacji.
 3. **Która strategia przewożenia rowerów najlepiej zmniejsza liczbę klientów odchodzących z niczym?** Na to odpowiada symulacja.
 
-**Ważne linki:** [silnik symulacji](docs/simulation.md) · [kontrakty między częściami](docs/kontrakty.md) · [raport końcowy](docs/raport/README.md) · [wyniki emergencji](docs/wyniki/emergencja.md) · [hipotezy z danych](docs/wyniki/hipotezy_osoba1.md) · [eksperyment H3 z 5.11](docs/milestone-2026-11-05/REPORT.md) · [wizualizacja 3D](unity/README.md)
+**Ważne linki:** [silnik symulacji](docs/simulation.md) · [kontrakty między częściami](docs/kontrakty.md) · [raport końcowy](docs/raport/README.md) · [przykładowy przebieg z agentami](docs/przyklad_przebiegu/) · [wyniki emergencji](docs/wyniki/emergencja.md) · [hipotezy z danych](docs/wyniki/hipotezy_osoba1.md) · [eksperyment H3 z 5.11](docs/milestone-2026-11-05/REPORT.md) · [wizualizacja 3D](unity/README.md)
 
 ---
 
 ## Spis treści
 
 1. [Jak uruchomić](#jak-uruchomić)
-2. [Stan prac (8.11.2026)](#stan-prac-8112026)
+2. [Stan prac (15.11.2026)](#stan-prac-15112026)
 3. [Najważniejsze wyniki](#najważniejsze-wyniki)
 4. [Hipotezy](#hipotezy)
 5. [Dane](#dane)
@@ -46,7 +46,7 @@ Folder `processed/` nie jest w repozytorium: każdy tworzy go u siebie polecenie
 
 ---
 
-## Stan prac (8.11.2026)
+## Stan prac (15.11.2026)
 
 Legenda: ✅ zrobione · 🟡 zrobione częściowo / wstępnie · ⬜ do zrobienia
 
@@ -56,28 +56,28 @@ Legenda: ✅ zrobione · 🟡 zrobione częściowo / wstępnie · ⬜ do zrobien
 
 | Część | Stan |
 |---|---|
-| Zbieranie danych (co 5 min, automatycznie) | ✅ działa samo od 22.10, bez przerw od 26.10; 16 pełnych dób, ok. 150 tys. przejazdów |
+| Zbieranie danych (co 5 min, automatycznie) | ✅ działa samo od 22.10; 23 pełne doby (15 roboczych), ok. 195 tys. przejazdów, pokrycie 98% (krótkie luki 10–12.11) |
 | Przetwarzanie danych + dane dla agentów | ✅ jedno polecenie `build` |
 | Pomiar emergencji (te same metryki dla danych i symulacji) | ✅ |
-| Hipotezy z danych H2, A, B, C | ✅ (do przeliczenia na `dane-final`) |
+| Hipotezy z danych H2, A, B, C | ✅ przeliczone na 23 dniach (ostatecznie na `dane-final`) |
 | Modele popytu, celu podróży i czasu jazdy + kalibracja i walidacja | 🟡 pierwsza wersja działa; brak typów klientów i agenta-klienta |
 | Silnik symulacji (SimPy) + 3 strategie + wstępne H3 | 🟡 działa; nie jest jeszcze agentowy (brak `src/agents/`) |
-| Wizualizacja 3D: prawdziwy dzień i symulacja obok siebie | ✅ (brak filmu i gotowego `.exe`) |
-| Raport końcowy | 🟡 spis rozdziałów i podział pracy; rozdziały niepisane |
+| Wizualizacja 3D: prawdziwy dzień i symulacja obok siebie | ✅ zbudowany `Veturilo.exe`; brak filmu |
+| Raport końcowy | 🟡 spis rozdziałów i podział pracy; wersje robocze rozdziałów 2, 3, 9, 12 (Osoba 1) |
 
 ### Osoba 1: dane dla agentów, emergencja, 3D, raport
 
 | Zadanie | Stan | Szczegóły |
 |---|---|---|
-| 1a. Dane na pełnym okresie | 🟡 | `processed/` liczy się na wszystkich dniach (16 dób). Notebook `analiza_opisowa` ma liczby z 23.10–2.11. Brak dni mroźnych i deszczowych. Do zrobienia: przeliczyć wszystko na `dane-final`. |
-| 1b. Opis przejazdów i trasy dojazdowe | ✅ | `trip_features.parquet` (pora, typ dnia, dzień zajęć, czas, km, e-rower, bateria, otoczenie startu i celu, dzielnice) i `commute_pairs.parquet` (pary A→B rano / B→A po południu, ≥ 3 dni robocze, regularność). |
+| 1a. Dane na pełnym okresie | 🟡 | `processed/` i oba notebooki (`analiza_opisowa`, `puste_i_przepelnione_stacje`) przeliczone na 23 pełnych dobach (23.10–15.11); są już dni z mrozem (do −4 °C, 7–10.11) i deszczem (10.11: 9 mm). Kontrola „zwijania sezonu” działa (`daily_check.wind_down`, tabela w `quality_report.md`): do 15.11 brak takich dni. **Zostaje na 1.12:** wyłączyć `cron` w `collect.yml`, ostatni `build`, `MANIFEST.json` z etykietą i tag `dane-final` ([instrukcja](docs/raport/powtarzalnosc.md)). |
+| 1b. Opis przejazdów i trasy dojazdowe | ✅ | `trip_features.parquet` (pora, typ dnia, dzień zajęć, czas, km, e-rower, bateria, otoczenie startu i celu, dzielnice) i `commute_pairs.parquet`: 1038 par A→B rano / B→A po południu (≥ 3 dni robocze), regularność ±15 min (mediana 4 dni, max 15). |
 | 1c. Opóźnienie aplikacji | 🟡 | Z zebranych danych nie da się go zmierzyć (feed nie podaje czasu aktualizacji). Gotowe narzędzie do pomiaru w terenie: [`tools/app_latency.py`](tools/app_latency.py). **Pomiar trzeba zrobić do 30.11**; jeśli się nie uda, opóźnienie będzie parametrem scenariusza (0/5/10 min). |
-| 1d. Zmiany ciężarówek operatora | ✅ | `operator_shifts.parquet` + `operator_rule.json` (przy jakim zapełnieniu operator dowozi / zabiera, ile rowerów, w jakich godzinach). |
+| 1d. Zmiany ciężarówek operatora | ✅ | `operator_shifts.parquet` (godziny pracy osobno dla dni roboczych i wolnych, bez dni zwijania sezonu) + `operator_rule.json` (dowóz przy zapełnieniu ok. 14%, 4 rowery na kurs, ok. 62 kursy w dzień roboczy). |
 | 1e. Bilans dzielnic | ✅ | `district_flows.parquet` (dzielnica × godzina: przyjazdy, wyjazdy, bilans). |
-| 2. Metryki emergencji (`src/metrics/`) | ✅ | Rytm dnia, Gini i krzywa Lorenza pustek, długość pustek, indeks Morana, fale pustek, bilans dzielnic, test z losowym wymieszaniem (1000 razy), `emergence_report()`, `compare()`, 12 testów. Działa na danych i na wyniku symulacji bez zmian w kodzie. |
-| 3. Hipotezy H2, A, B, C | ✅ | Wyniki niżej i w [`docs/wyniki/hipotezy_osoba1.md`](docs/wyniki/hipotezy_osoba1.md). Do zrobienia: przeliczyć na `dane-final`. |
-| 4. Wizualizacja 3D | 🟡 | Gotowe: wczytanie symulacji (`export_sim`), podzielony ekran dane \| model (X), 4 strategie obok siebie z licznikiem utraconych klientów (Z), agenci-klienci (J), decyzje dyspozytora (O), fale pustek (B), mapa „ciśnienia” (Y), pasek zdarzeń, pokaz z komentarzem (T). Do zrobienia: **film** z pokazu, **zbudowany `Veturilo.exe`** (menu do budowania jest), podpięcie „ciśnienia” z agentów Osoby 3, gdy powstanie (teraz liczone ze stanu stacji). |
-| 5. Raport i `run_all.ps1` | 🟡 | `run_all.ps1` ✅, [spis rozdziałów z przypisaniem osób](docs/raport/README.md) ✅, [ograniczenia](docs/raport/ograniczenia.md) i [powtarzalność](docs/raport/powtarzalnosc.md) ✅. Do zrobienia: treść rozdziałów 2, 3, 9, 12. |
+| 2. Metryki emergencji (`src/metrics/`) | ✅ | Rytm dnia, Gini i krzywa Lorenza pustek, długość pustek, indeks Morana, fale pustek, bilans dzielnic, modele zerowe „inny dzień” i „zamiana miejsc” (1000 razy), `emergence_report()`, `compare()`, testy. Przeliczone na 23 dniach: [`emergencja.md`](docs/wyniki/emergencja.md). |
+| 3. Hipotezy H2, A, B, C | ✅ | Przeliczone na 23 dniach, wyniki niżej i w [`hipotezy_osoba1.md`](docs/wyniki/hipotezy_osoba1.md); 10 stacji najczęściej pustych rano dla Osoby 2: [`top10_puste_rano.csv`](docs/wyniki/top10_puste_rano.csv). Ostatecznie na `dane-final`. |
+| 4. Wizualizacja 3D | 🟡 | Gotowe: wczytanie symulacji (`export_sim`), podzielony ekran dane \| model (X), 4 strategie z licznikiem utraconych klientów (Z), agenci-klienci (J), decyzje dyspozytora (O), fale pustek (B), „ciśnienie” (Y), pasek zdarzeń, pokaz z komentarzem (T), zbudowany `Veturilo.exe`. **Nowe:** [przykładowy przebieg](docs/przyklad_przebiegu/) ze wszystkimi nowymi zdarzeniami agentów i kolumną `pressure` (wzór dla Osoby 3, [kontrakt](docs/kontrakty.md)); eksport 3D poprawiony dla brakujących wartości (`pd.NA`). Do zrobienia: **film** z pokazu; lista przebiegów z pełnymi tabelami do potwierdzenia z Osobą 3. |
+| 5. Raport i `run_all.ps1` | 🟡 | `run_all.ps1` (z `-Quick`) ✅, [spis rozdziałów](docs/raport/README.md) ✅, [ograniczenia](docs/raport/ograniczenia.md) i [powtarzalność](docs/raport/powtarzalnosc.md) ✅, testy na GitHubie ✅, issues #1–#3 zamknięte, #5–#7 założone ✅. **Nowe:** wersje robocze rozdziałów [2](docs/raport/02_dane.md), [3](docs/raport/03_analiza_opisowa.md), [9](docs/raport/09_emergencja.md) (część Osoby 1), [12](docs/raport/12_kto_co_jak_uruchomic.md). |
 
 ### Osoba 2: klienci, parametry z danych, kalibracja, walidacja
 
@@ -112,13 +112,13 @@ Legenda: ✅ zrobione · 🟡 zrobione częściowo / wstępnie · ⬜ do zrobien
 
 1. **Dane są nasze.** Operator nie udostępnia listy przejazdów, tylko stan stacji i numery stojących rowerów. Zapisujemy to co 5 minut i **sami odtwarzamy przejazdy**: rower nr 12345 zniknął ze stacji A, a 15 min później pojawił się na B, więc ktoś przejechał z A do B.
 2. **Odtworzenie działa.** Przyrost rowerów na stacji zgadza się z liczbą odtworzonych przejazdów w 98,5% przypadków. Błędy feedu (rower „znika” na chwilę, skoki GPS) są wykrywane i odrzucane.
-3. **Skala:** ok. 10 tys. przejazdów w dzień roboczy, ok. 7 tys. w weekend. Szczyty o 8:00 (~610/h) i 16:00 (~960/h). Typowy przejazd: 15 min i 1,8 km. Operator robi ok. 70 przewozów dziennie, zwykle po 4 rowery. W obiegu jest ok. 3640 rowerów (operator deklaruje 4566).
-4. **Puste stacje są skupione:** 10% stacji odpowiada za 44% czasu pustek, często to te same stacje i leżą obok siebie (H2).
-5. **Pustki rozchodzą się falami:** połowa przypadków opróżnienia stacji ma sąsiada (≤ 800 m), który opróżnił się w ciągu 20 min; to więcej niż przy przypadkowym rozmieszczeniu (p = 0,001). To emergencja widoczna w danych.
-6. **Operator jeździ we właściwe miejsca, ale nie nadąża** (hipoteza C): dowozi średnio 45 min po opróżnieniu stacji. Jest więc miejsce na lepszą strategię.
-7. **Symulacja odtwarza rytm dnia** (szczyt o 16:00, liczba przejazdów zbliżona), ale ma za dużo pustych stacji i za mało skupione przestrzennie (Moran 0,23 vs 0,59 w danych). To zadanie dla agentów i kalibracji.
+3. **Skala:** ok. 8,6 tys. przejazdów w dzień roboczy, 6,8 tys. w sobotę, 6 tys. w niedzielę. Szczyty o 8:00 (~550/h) i 16:00 (~810/h). Typowy przejazd: 15 min i 1,9 km. Operator robi ok. 60–70 przewozów dziennie, zwykle po 4 rowery. Na stacjach stoi ok. 3 480 rowerów (operator deklaruje 4 566). Z ochłodzeniem w listopadzie przejazdów ubywa (pierwsze 2 tygodnie: ok. 9,7 tys. w dzień roboczy).
+4. **Puste stacje są skupione:** 10% stacji odpowiada za 44% czasu pustek, często to te same stacje i leżą obok siebie (Moran I = 0,61; H2).
+5. **Pustki rozchodzą się falami:** prawie połowa (48%) przypadków opróżnienia stacji ma sąsiada (≤ 800 m), który opróżnił się w ciągu 20 min. Fal jest więcej i są większe, niż wynikałoby z samej pory dnia i z tego, jak często stacje bywają puste (oba modele zerowe: p = 0,001). To emergencja widoczna w danych.
+6. **Operator jeździ we właściwe miejsca, ale nie nadąża** (hipoteza C): kończy tylko 8% pustek, dowozi średnio 45 min po opróżnieniu stacji. Jest więc miejsce na lepszą strategię.
+7. **Symulacja odtwarza rytm dnia** (szczyt o 16:00, 8 593 vs 8 637 przejazdów), ale stacje pustoszeją w niej za często (484 vs 182 razy na dobę) i bez wzoru przestrzennego (Moran 0,23 vs 0,61; fale nie różnią się od losowych). To zadanie dla agentów i kalibracji.
 
-**Czy danych jest dość?** Na dni robocze tak. Na weekendy i pogodę za mało: tylko 2 soboty i 2 niedziele, temperatury 1–14 °C, kilkanaście godzin z deszczem. Dane zbieramy do końca sezonu (30.11).
+**Czy danych jest dość?** Na dni robocze tak (15). Na weekendy na granicy (4 soboty, 4 niedziele i święta). Pogoda: −4…14 °C, 60 h mrozu, 31 h z opadem – tylko listopad. Dane zbieramy do końca sezonu (30.11).
 
 ---
 
@@ -128,16 +128,16 @@ H1–H6 pochodzą z planu projektu, A–C wynikły z analizy danych.
 
 | | Hipoteza | Stan | Wynik / co dalej | Kto |
 |---|---|---|---|---|
-| **H1** | Pogoda zmienia liczbę wypożyczeń (deszcz, zmrok, temperatura jako „odwrócone U”) | 🟡 | Pierwsze oszacowanie w modelu popytu. Za mało dni deszczowych i mroźnych, żeby rozstrzygnąć. | Osoba 2 |
-| **H2** | Puste stacje to problem niewielkiej części stacji | ✅ | Gini czasu pustek 0,67 (95% CI 0,65–0,70), 10% stacji = 44% pustek; zbiory najczęściej pustych stacji z różnych dni pokrywają się 3× częściej niż losowo. [Top 10 rano](docs/wyniki/top10_puste_rano.csv). | Osoba 1 |
+| **H1** | Pogoda zmienia liczbę wypożyczeń (deszcz, zmrok, temperatura jako „odwrócone U”) | 🟡 | Pierwsze oszacowanie w modelu popytu (13 dni). Od 7.11 są dni z mrozem (do −4 °C) i deszczem – do przeliczenia na pełnych danych. | Osoba 2 |
+| **H2** | Puste stacje to problem niewielkiej części stacji | ✅ | Gini czasu pustek 0,67 (95% CI 0,65–0,70), 10% stacji = 44% pustek (23 dni); zbiory najczęściej pustych stacji z różnych dni pokrywają się 3× częściej niż losowo; skupiska w przestrzeni (Moran 0,61). [Top 10 rano](docs/wyniki/top10_puste_rano.csv). | Osoba 1 |
 | **H3** | Lepsza strategia przewożenia zmniejsza utracony popyt; każda kolejna ciężarówka daje mniej | 🟡 | Wstępnie: strategia progowa z 4 ciężarówkami zmniejsza utracony popyt z 380 do 149 klientów/dobę, ale na roboczych parametrach. Do przeliczenia na modelach Osoby 2 i 6 strategiach. [Raport](docs/milestone-2026-11-05/REPORT.md). | Osoba 3 |
 | **H4** | Zajęcia na uczelniach zwiększają popyt przy uczelniach | 🟡 | Model gotowy, ale prawie wszystkie zebrane dni to dni zajęć; trzeba porównać z przerwą świąteczną. | Osoba 2 |
 | **H5a** | W korki ludzie częściej wybierają rower | 🟡 | Pierwsze oszacowanie w modelu popytu (z kontrolą godziny). | Osoba 2 |
 | **H5b** | Korki spowalniają ciężarówki i psują relokację | ⬜ | Silnik umie spowalniać ciężarówki; eksperyment do zrobienia. | Osoba 3 |
 | **H6** | Otoczenie stacji wyjaśnia różnice w popycie | ⬜ | Dane gotowe (`stations` + `station_hourly`); potrzebne do scenariusza „nowa stacja”. | Osoba 2 |
-| **A** | Darmowe 20 minut kształtuje długość jazdy | ✅ | 76% przejazdów mieści się w 20 min; tuż za progiem przejazdów ubywa szybciej (0,72× trendu, CI 0,70–0,74). Model czasu jazdy musi to uwzględnić. | Osoba 1 |
-| **B** | E-rowery to osobna grupa klientów | ✅ | 8% rowerów, ale 19% przejazdów; jeździ się nimi dalej; klienci omijają rozładowane (10% wypożyczeń z baterią < 20% przy 18% takich rowerów na stacjach). | Osoba 1 |
-| **C** | Operator nie nadąża tam, gdzie brakuje rowerów | ✅ | Jeździ we właściwe miejsca (ρ = 0,74), ale kończy tylko 7% pustek w dzień, po medianie 45 min. Reguła operatora dla symulacji: `operator_rule.json`. | Osoba 1 |
+| **A** | Darmowe 20 minut kształtuje długość jazdy | ✅ | 77% przejazdów mieści się w 20 min; tuż za progiem przejazdów ubywa szybciej (0,71× trendu, CI 0,69–0,73). Model czasu jazdy musi to uwzględnić. | Osoba 1 |
+| **B** | E-rowery to osobna grupa klientów | ✅ | 8% rowerów, ale 20% przejazdów; jeździ się nimi dalej; klienci omijają rozładowane (9% wypożyczeń z baterią < 20% przy 16% takich rowerów na stacjach). | Osoba 1 |
+| **C** | Operator nie nadąża tam, gdzie brakuje rowerów | ✅ | Jeździ we właściwe miejsca (ρ = 0,76), ale kończy tylko 8% pustek w dzień, po medianie 45 min. Reguła operatora dla symulacji: `operator_rule.json`. | Osoba 1 |
 
 ---
 
@@ -264,9 +264,10 @@ src/simulation/             Osoba 3: silnik SimPy, strategie, eksperymenty, wery
 src/agents/                 Osoba 2 i 3: agenci (do utworzenia)
 src/viz/                    Osoba 1: eksport danych i symulacji do Unity
 tools/app_latency.py        pomiar opóźnienia aplikacji w terenie (do 30.11)
+tools/przyklad_przebiegu.py przykładowy przebieg z nowymi zdarzeniami agentów (-> docs/przyklad_przebiegu/)
 tests/                      testy (pytest)
 notebooks/                  analiza opisowa, puste stacje (H2), modele i walidacja
-docs/                       wyniki (wyniki/), kamień milowy 5.11, kontrakty, raport (raport/)
+docs/                       wyniki (wyniki/), kamień milowy 5.11, kontrakty, przykładowy przebieg, raport (raport/)
 unity/                      projekt wizualizacji 3D
 data/                       dane zbierane na żywo + data/static/ (dane dodatkowe)
 processed/                  wyniki build (lokalnie, poza repozytorium)

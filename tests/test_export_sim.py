@@ -63,3 +63,36 @@ def test_flat_cascades_offsets_and_min_size():
     c = flat_cascades(members, SIDX, day0)
     assert c["start"] == [0] and c["len"] == [3]
     assert c["st"] == [0, 1, 2] and c["t"] == [28800, 29100, 29700]
+
+
+def test_agent_events_with_missing_values():
+    """Nowe zdarzenia agentow (kontrakt) z brakami zapisanymi jako pd.NA (typy nullable z parquet)."""
+    e = pd.DataFrame({
+        "minute": [10.0, 15.0, 15.0, 20.0, 21.0, 30.0],
+        "event": ["user_wait_start", "user_wait_end", "user_leave", "task_awarded", "task_awarded", "lost_demand"],
+        "station_id": pd.array(["A", "A", "A", "C", "B", "A"], dtype="string"),
+        "to_station": pd.array([None, None, None, "A", None, None], dtype="string"),
+        "request_id": pd.array(["1", "1", "1", None, None, "1"], dtype="string"),
+        "user_type": pd.array(["commuter", "commuter", "commuter", None, None, None], dtype="string"),
+        "truck_id": pd.array([None, None, None, 0, 1, None], dtype="Int64"),
+        "n_bikes": pd.array([None, None, None, 6, None, None], dtype="Int64"),
+    })
+    a = agents_block(e, lambda m: int(m * 60), SIDX)
+    assert a["waitT"] == [600] and a["waitEnd"] == [900] and a["waitType"] == [1]
+    assert a["lostType"] == [0]
+    assert list(zip(a["taskPick"], a["taskDrop"], a["taskN"])) == [(2, 0, 6), (1, 1, 0)]
+
+
+def test_example_run_pressure_and_signals():
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "przyklad", Path(__file__).resolve().parents[1] / "tools" / "przyklad_przebiegu.py")
+    m = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(m)
+    t = pd.date_range("2026-11-05", periods=4, freq="5min", tz="UTC")
+    ts = pd.DataFrame({"time": t, "station_id": "A", "bikes": [0, 1, 5, 10], "capacity": 10})
+    ts["pressure"] = m.pressure(ts)
+    assert ts["pressure"].tolist() == [-1.0, -0.5, 0.0, 1.0]
+    sig = m.signals(ts)
+    assert sig["event"].tolist() == ["signal_on", "signal_off"] and sig["time"].tolist() == [t[0], t[2]]
