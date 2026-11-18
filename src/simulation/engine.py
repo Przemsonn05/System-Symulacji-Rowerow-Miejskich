@@ -59,6 +59,9 @@ class SimulationParams:
     lower_signal_threshold: float = 0.1
     upper_signal_threshold: float = 0.9
     truck_shift_hours: Optional[Tuple[int, int]] = None
+    forecast_horizon_min: float = 60.0      # predictive: na ile minut naprzod prognozuje stan stacji
+    forecast_ride_lag_min: float = 15.0     # typowy czas jazdy: zwroty pochodza z wypozyczen sprzed tylu minut
+    morning_window: Tuple[int, int] = (6, 10)  # night: poranny szczyt (godziny lokalne), na ktory szykuje stacje
 
     def __post_init__(self):
         self.start_time = pd.Timestamp(self.start_time)
@@ -157,6 +160,10 @@ class Simulation:
         demand = params.demand_model
         if demand is None:
             demand = ExampleDemand(np.full(len(self.ids), 1.0))
+        # dyspozytor prognozuje z popytu przecietnego dnia: nie zna losowego poziomu tego konkretnego dnia
+        self.forecast_demand = demand
+        self._flow_cache: Dict[Any, Tuple[np.ndarray, np.ndarray]] = {}
+        self._night_cache: Dict[Any, np.ndarray] = {}
         # popyt zalezny od ziarna (losowy poziom dnia z modelu Osoby 2): ten sam dla wszystkich strategii
         # z danym ziarnem, wiec wspolne liczby losowe sa zachowane
         if hasattr(demand, "for_seed"):
@@ -454,27 +461,71 @@ class Simulation:
                 self.reserved.update((job[0], job[1]))
             return job
         if self.scenario == "predictive":
+            # stan stacji za forecast_horizon_min: obecne rowery + dostawy + oczekiwane zwroty - oczekiwane wypozyczenia
+            horizon = self.p.forecast_horizon_min
+            rentals, _ = self.expected_flows(self.env.now, horizon)
+            _, returns = self.expected_flows(self.env.now - self.p.forecast_ride_lag_min, horizon)
             forecasts = np.zeros(len(self.ids))
             for i, ag in enumerate(self.station_agents):
                 in_tr = sum(1 for dest in self.in_transit_destinations.values() if dest == i) if self.p.oracle else 0
-                exp_ret = 1.0 if not self.p.oracle else in_tr
-                forecasts[i] = ag.forecast_bikes(in_tr, exp_ret, 1.0)
+                forecasts[i] = ag.forecast_bikes(in_tr, returns[i], rentals[i])
             job = self.dispatcher.find_predictive_pair(forecasts, counts, self.p.network.truck_minutes)
             if job:
                 self.reserved.update((job[0], job[1]))
             return job
         if self.scenario == "night":
-            hour = int(self.env.now // 60) % 24
-            if 0 <= hour < 5:
-                morning_outflow = np.zeros(len(self.ids))
-                for i in range(len(self.ids)):
-                    morning_outflow[i] = max(0, int(self.capacity[i] * 0.3))
+            local = (self.p.start_time + pd.Timedelta(minutes=float(self.env.now))).tz_convert("Europe/Warsaw")
+            if 0 <= local.hour < 5:
+                morning_outflow = self.morning_net_outflow(local)
                 job = self.dispatcher.find_night_pair(morning_outflow, counts, self.p.network.truck_minutes)
                 if job:
                     self.reserved.update((job[0], job[1]))
                 return job
             return None
         return None
+
+    def hourly_flows(self, minute):
+        """Oczekiwane wypozyczenia i zwroty na godzine dla kazdej stacji w godzinie zawierajacej `minute`:
+        popyt z modelu (przecietny dzien) i cele podrozy z macierzy OD (zalezne od pory dnia, jesli model)."""
+        ctx = context_at(self.p.start_time, minute, self.p.context_hourly)
+        key = ctx["time"]
+        if key not in self._flow_cache:
+            rentals = np.asarray(self.forecast_demand.rates(self.p.stations, ctx), dtype=float)
+            od = self.p.od_matrix
+            if hasattr(od, "matrix"):
+                od = od.matrix(ctx)
+            elif od is None:  # jak w generate_requests: cele wazone odlegloscia
+                od = np.exp(-self.p.network.bike_km / 3.0)
+                np.fill_diagonal(od, 0.05)
+            od = np.asarray(od, dtype=float)
+            od = od / od.sum(axis=1, keepdims=True)
+            self._flow_cache[key] = (rentals, rentals @ od)
+        return self._flow_cache[key]
+
+    def expected_flows(self, start, minutes):
+        """Oczekiwane wypozyczenia i zwroty na stacjach w oknie [start, start + minutes), przycietym do symulacji."""
+        rentals, returns = np.zeros(len(self.ids)), np.zeros(len(self.ids))
+        t, end = max(0.0, start), min(self.duration, start + minutes)
+        while t < end - 1e-9:
+            step = min(end, next_hour_minute(self.p.start_time, t)) - t
+            r, q = self.hourly_flows(t)
+            rentals += r * step / 60
+            returns += q * step / 60
+            t += step
+        return rentals, returns
+
+    def morning_net_outflow(self, local_now):
+        """Przewidywany odplyw netto (wypozyczenia - zwroty) w porannym szczycie najblizszego ranka."""
+        day = local_now.date()
+        if day not in self._night_cache:
+            first, last = self.p.morning_window
+            morning = local_now.normalize() + pd.Timedelta(hours=first)
+            start = (morning.tz_convert("UTC") - self.p.start_time).total_seconds() / 60
+            minutes = (last - first) * 60
+            rentals, _ = self.expected_flows(start, minutes)
+            _, returns = self.expected_flows(start - self.p.forecast_ride_lag_min, minutes)
+            self._night_cache[day] = rentals - returns
+        return self._night_cache[day]
 
     def prepare_operator_jobs(self):
         table = self.p.rebalancing_observed.copy()

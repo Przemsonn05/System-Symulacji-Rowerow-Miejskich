@@ -42,8 +42,8 @@ sequenceDiagram
 | `none` | Brak relokacji — zachowanie czysto pasywne. |
 | `operator` | Odtworzenie historycznych zleceń operatora Veturilo z danych empirycznych. |
 | `threshold` | Reaktywna reakcja progowa (interwencja poniżej 20% lub powyżej 80% pojemności). |
-| `night` | Nocne wyrównywanie stacji (0:00–5:00) pod spodziewany poranny odpływ netto (6:00–10:00). |
-| `predictive` | Predykcja wyprzedzająca: obsługa stacji prognozowanych jako puste/pełne za 30–60 min bez podglądania przyszłości. |
+| `night` | Nocne wyrównywanie stacji (0:00–5:00 czasu lokalnego) pod przewidywany odpływ netto porannego szczytu (6:00–10:00): oczekiwane wypożyczenia minus zwroty z modelu popytu i macierzy OD. Cel stacji = 50% stojaków + przewidywany odpływ. |
+| `predictive` | Predykcja wyprzedzająca: stan stacji za `forecast_horizon_min` (60 min) = obecne rowery + dostawy ciężarówek + oczekiwane zwroty − oczekiwane wypożyczenia. Wypożyczenia z modelu popytu (przeciętny dzień, bez losowego poziomu danego dnia, którego dyspozytor nie zna), zwroty z wypożyczeń na wszystkich stacjach × prawdopodobieństwo celu z macierzy OD, przesunięte o typowy czas jazdy (`forecast_ride_lag_min`, 15 min). Interwencja przy prognozie poniżej 10% / powyżej 90% stojaków. |
 | `pressure` | Sterowanie polem ciśnienia: relokacje pomiędzy obszarami o skrajnych wartościach ciśnienia na grafie. |
 | `operator_rule` | Heurystyka dopasowana do godzin pracy operatora (6:00–22:00) i progów 25%/75%. |
 
