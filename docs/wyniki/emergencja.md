@@ -4,24 +4,24 @@ Wygenerowane przez `python -m src.metrics`. Wszystkie metryki liczone z tabel st
 
 | metryka | dane | symulacja |
 |---|---|---|
-| dni | 23 | 1 |
-| przejazdy / dzień roboczy | 8637 | 8593 |
+| dni | 26 | 1 |
+| przejazdy / dzień roboczy | 8330 | 7367 |
 | godzina szczytu | 16 | 16 |
-| Gini pustek | 0.67 | 0.806 |
-| 10% stacji = udział pustek | 0.443 | 0.58 |
-| nigdy pusta | 0.242 | 0.678 |
-| pustka: mediana [min] | 25 | 25 |
-| pustka: p90 [min] | 95 | 92.5 |
-| Moran I (pustki) | 0.606 | 0.228 |
-| Moran p | 0.001 | 0.001 |
-| chwile pustoszenia / dzień | 182 | 484 |
-| w fali (z sąsiadem) | 0.474 | 0.616 |
-| fale ≥ 3 stacje / dzień | 10.3 | 23 |
-| największa fala | 42 | 77 |
-| fale vs inny dzień (×) | 1.12 | nan |
+| Gini pustek | 0.669 | 0.837 |
+| 10% stacji = udział pustek | 0.438 | 0.666 |
+| nigdy pusta | 0.239 | 0.717 |
+| pustka: mediana [min] | 25 | 30 |
+| pustka: p90 [min] | 95 | 122 |
+| Moran I (pustki) | 0.597 | 0.0392 |
+| Moran p | 0.001 | 0.171 |
+| chwile pustoszenia / dzień | 176 | 340 |
+| w fali (z sąsiadem) | 0.468 | 0.359 |
+| fale ≥ 3 stacje / dzień | 10 | 13 |
+| największa fala | 42 | 11 |
+| fale vs inny dzień (×) | 1.14 | nan |
 | p (inny dzień) | 0.000999 | nan |
-| fale vs zamiana miejsc (×) | 1.07 | 1.06 |
-| p (zamiana miejsc) | 0.000999 | 0.103 |
+| fale vs zamiana miejsc (×) | 1.1 | 1.02 |
+| p (zamiana miejsc) | 0.002 | 0.439 |
 
 ## Jak czytać
 
@@ -34,20 +34,20 @@ Wygenerowane przez `python -m src.metrics`. Wszystkie metryki liczone z tabel st
 
 | model zerowy | statystyka | dane | średnia modelu | 95% modelu | × | p |
 |---|---|---|---|---|---|---|
-| inny_dzien | linked_share | 0.477 | 0.425 | 0.446 | 1.12 | 0.001 |
-| inny_dzien | n_cascades_ge3 | 235 | 219 | 242 | 1.07 | 0.138 |
-| inny_dzien | mean_size_ge2 | 3.56 | 3.09 | 3.25 | 1.15 | 0.001 |
-| zamiana_miejsc | linked_share | 0.477 | 0.446 | 0.462 | 1.07 | 0.001 |
-| zamiana_miejsc | n_cascades_ge3 | 235 | 211 | 231 | 1.11 | 0.029 |
-| zamiana_miejsc | mean_size_ge2 | 3.56 | 3.5 | 3.73 | 1.02 | 0.336 |
+| inny_dzien | linked_share | 0.471 | 0.413 | 0.433 | 1.14 | 0.001 |
+| inny_dzien | n_cascades_ge3 | 258 | 235 | 261 | 1.10 | 0.075 |
+| inny_dzien | mean_size_ge2 | 3.47 | 2.99 | 3.13 | 1.16 | 0.001 |
+| zamiana_miejsc | linked_share | 0.471 | 0.429 | 0.446 | 1.10 | 0.002 |
+| zamiana_miejsc | n_cascades_ge3 | 258 | 225 | 244 | 1.15 | 0.002 |
+| zamiana_miejsc | mean_size_ge2 | 3.47 | 3.37 | 3.59 | 1.03 | 0.205 |
 
 ## Testy fal: symulacja
 
 | model zerowy | statystyka | dane | średnia modelu | 95% modelu | × | p |
 |---|---|---|---|---|---|---|
 | inny_dzien | – | brak (za mało dni tego samego typu) | | | | |
-| zamiana_miejsc | linked_share | 0.617 | 0.584 | 0.623 | 1.06 | 0.103 |
-| zamiana_miejsc | n_cascades_ge3 | 23 | 31.4 | 39 | 0.73 | 0.978 |
-| zamiana_miejsc | mean_size_ge2 | 4.52 | 3.89 | 4.53 | 1.16 | 0.058 |
+| zamiana_miejsc | linked_share | 0.36 | 0.353 | 0.401 | 1.02 | 0.439 |
+| zamiana_miejsc | n_cascades_ge3 | 13 | 13.5 | 18 | 0.96 | 0.625 |
+| zamiana_miejsc | mean_size_ge2 | 2.71 | 2.69 | 3.1 | 1.01 | 0.418 |
 
 ![dane vs symulacja](emergencja.png)

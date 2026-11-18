@@ -12,7 +12,7 @@
 #   unity/Assets/StreamingAssets/veturilo/   dane wizualizacji 3D (dni + wybrane przebiegi modelu)
 param(
     [switch]$Quick,
-    [string]$Day = '2026-11-05',
+    [string]$Day = '2026-11-17',   # dzien walidacyjny (dzien roboczy, pelne pokrycie)
     [int]$Replications = 30,
     [int]$Jobs = 4,
     [switch]$SkipBuild,
@@ -70,6 +70,8 @@ if (-not $SkipExperiment) {
     Step "Eksperyment H3: $Replications replikacji"
     Py -m src.simulation experiment --inputs $inputs --out $h3 --replications $Replications --jobs $Jobs
     Py -m src.simulation.verify --results $h3
+    Step 'Przebieg agentowy pressure_2 (pelne tabele do 3D)'
+    Py -m src.simulation run --inputs $inputs --scenario pressure --trucks 2 --seed 1000 --out "$h3/runs/pressure_2/seed_1000"
 }
 
 Step 'Hipotezy H2, A, B, C i regula operatora'
@@ -84,7 +86,7 @@ if (Test-Path -LiteralPath "$simRun/station_timeseries.parquet") {
 
 Step 'Eksport do wizualizacji 3D'
 Py -m src.viz.export
-$runs = @('none_1', 'operator_2', 'threshold_2', 'threshold_4') |
+$runs = @('none_1', 'operator_2', 'threshold_2', 'pressure_2', 'threshold_4') |
     ForEach-Object { "$h3/runs/$_/seed_1000" } | Where-Object { Test-Path -LiteralPath "$_/kpis.json" }
 if ($runs.Count -gt 0) { Py -m src.viz.export_sim @runs }
 

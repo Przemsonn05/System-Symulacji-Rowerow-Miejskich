@@ -1,6 +1,6 @@
 # 12. Kto co robił, jak uruchomić, fragmenty kodu
 
-*Osoba 1 (koordynacja). Wersja robocza 15.11.2026 – podział pracy do potwierdzenia przez cały zespół przed 14.01.*
+*Osoba 1 (koordynacja). Wersja robocza 19.11.2026 – podział pracy do potwierdzenia przez cały zespół przed 14.01.*
 
 ## 12.1. Podział pracy
 
@@ -11,7 +11,7 @@
 | **Osoba 3** | silnik symulacji (SimPy), agenci stacja / ciężarówka / dyspozytor, strategie relokacji, weryfikacja, eksperymenty H3, H5b, przejście fazowe, efekt stadny, analiza wrażliwości | `src/simulation/`, `src/agents/` | 4, 6, 8, 9 (z Osobą 1) |
 | wszyscy | wstęp, hipotezy, wnioski i ograniczenia | – | 1, 10, 11 |
 
-Zadania i postęp: issues na GitHubie (#5 Osoba 1, #6 Osoba 2, #7 Osoba 3), stan prac w [README](../../README.md#stan-prac-15112026).
+Zadania i postęp: issues na GitHubie (#5 Osoba 1, #6 Osoba 2, #7 Osoba 3), stan prac w [README](../../README.md#stan-prac-19112026).
 
 ## 12.2. Jak uruchomić
 
@@ -29,7 +29,7 @@ Kroki pojedynczo:
 |---|---|---|
 | Dane | `python -m src.data.build`, `python -m src.data.manifest` | `processed/`, `MANIFEST.json` |
 | Modele | `python -m src.model.pipeline` | `processed/model/` (`sim_params.json`) |
-| Symulacja | `python -m src.simulation prepare / run / experiment` | `results/` |
+| Symulacja | `python -m src.simulation prepare / run / experiment` (strategie: `none`, `operator`, `threshold`, `night`, `predictive`, `pressure`, `operator_rule`) | `results/` |
 | Hipotezy z danych | `python -m src.metrics.hypotheses` | `docs/wyniki/hipotezy_osoba1.md` |
 | Emergencja | `python -m src.metrics processed --sim <przebieg>` | `docs/wyniki/emergencja.md` |
 | 3D | `python -m src.viz.export`, `python -m src.viz.export_sim <przebiegi>` | `unity/Assets/StreamingAssets/veturilo/` |

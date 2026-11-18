@@ -83,9 +83,11 @@ Co 5 min: `time`, `station_id`, `bikes`, `capacity`, `docks`, `is_empty`, `is_ov
 
 **Które przebiegi mają pełne tabele (do 3D i metryk).** Przy ok. 5000 przebiegów zapisujemy tylko wyniki zbiorcze, poza listą:
 
-- ziarno 1000, jeden dzień walidacyjny (propozycja: czwartek 19.11),
-- strategie: brak relokacji, odtworzenie operatora, progowa (2 ciężarówki), najlepsza (np. progowa 4 / aukcja),
-- dwa poziomy aplikacji (np. 0% i 80% klientów z aplikacją) – do efektu stadnego.
+- ziarno 1000, dzień walidacyjny **wtorek 17.11** (dzień roboczy, pełne pokrycie; 19.11 odpada – w dniu zamrożenia listy nie był jeszcze pełną dobą),
+- strategie: `none_1`, `operator_2`, `threshold_2`, `pressure_2` (silnik agentowy, Contract Net) – te 4 przebiegi są już policzone i wyeksportowane do 3D (19.11); po 3.12 dochodzi najlepsza strategia z H3,
+- dwa poziomy aplikacji (0% i 80% klientów z aplikacją, opóźnienie 5 min) – do efektu stadnego, po zamrożeniu `sim_params.json`.
+
+Sprawdzone 19.11: zdarzenia silnika agentowego (`user_wait_*`, `user_walk`, `user_leave`, `signal_on/off`, `task_announced`, `bid`, `task_awarded`, `truck_load/unload`) i kolumna `pressure` wczytują się do 3D bez zmian w eksporcie.
 
 Eksport: `python -m src.viz.export_sim <katalogi przebiegów>` (do 4 przebiegów jednej daty → widok „Strategie” w 3D).
 
@@ -95,3 +97,4 @@ Eksport: `python -m src.viz.export_sim <katalogi przebiegów>` (do 4 przebiegów
 
 - 2026-11-08 – wersja robocza sekcji 2 i 3 (Osoba 1).
 - 2026-11-15 – przykładowy przebieg z nowymi zdarzeniami agentów (`docs/przyklad_przebiegu/`), doprecyzowane pola `task_awarded` i `user_walk` (Osoba 1).
+- 2026-11-19 – lista przebiegów z pełnymi tabelami: 17.11, ziarno 1000, `none_1` / `operator_2` / `threshold_2` / `pressure_2`; eksport z prawdziwego silnika agentowego sprawdzony (Osoba 1).

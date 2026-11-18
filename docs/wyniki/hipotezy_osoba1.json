@@ -1,245 +1,245 @@
 {
  "H2": {
-  "days": 23,
-  "gini": 0.6689445795697738,
+  "days": 26,
+  "gini": 0.6686481559949244,
   "gini_ci95": [
-   0.6483671624670793,
-   0.6985128810040744
+   0.6486214113986016,
+   0.6952849583922553
   ],
   "gini_leave_one_day_out": [
-   0.6660251218944141,
-   0.6785276438558889
+   0.6663626802473772,
+   0.6776467845420424
   ],
   "gini_per_day": [
    0.8062570333922596,
-   0.8909427652941094,
+   0.8950804889966804,
    0.9654818287998498
   ],
-  "top10_jaccard_mean": 0.14806514482329805,
+  "top10_jaccard_mean": 0.15008792232698567,
   "top10_jaccard_random": 0.053763440860215055,
   "top_morning": [
    {
     "station_id": "2585472",
-    "morning_empty_share": 0.3378119001919386,
+    "morning_empty_share": 0.27980922098569155,
     "name": "Metro Centrum",
     "district": "Śródmieście",
-    "minutes_empty_per_morning": 61.0,
-    "share_empty_all_day": 0.067,
+    "minutes_empty_per_morning": 50.0,
+    "share_empty_all_day": 0.059,
     "lat": 52.229939,
     "lon": 21.010973
    },
    {
     "station_id": "2585265",
-    "morning_empty_share": 0.2495274102079395,
+    "morning_empty_share": 0.24960753532182103,
     "name": "Marymoncka - Dewajtis",
     "district": "Bielany",
     "minutes_empty_per_morning": 45.0,
-    "share_empty_all_day": 0.034,
+    "share_empty_all_day": 0.039,
     "lat": 52.290173,
     "lon": 20.95037
    },
    {
     "station_id": "2585469",
-    "morning_empty_share": 0.2060491493383743,
+    "morning_empty_share": 0.21664050235478807,
     "name": "Emilii Plater - al. Jerozolimskie",
     "district": "Śródmieście",
-    "minutes_empty_per_morning": 37.0,
-    "share_empty_all_day": 0.054,
+    "minutes_empty_per_morning": 39.0,
+    "share_empty_all_day": 0.057,
     "lat": 52.229046,
     "lon": 21.005454
    },
    {
     "station_id": "3318682",
-    "morning_empty_share": 0.20226843100189035,
+    "morning_empty_share": 0.1695447409733124,
     "name": "Żwirki i Wigury - Woronicza",
     "district": "Ochota",
-    "minutes_empty_per_morning": 36.0,
+    "minutes_empty_per_morning": 31.0,
     "share_empty_all_day": 0.057,
     "lat": 52.194579,
     "lon": 20.982139
    },
    {
-    "station_id": "281045539",
-    "morning_empty_share": 0.15122873345935728,
-    "name": "Rembrandta – Miedza ",
-    "district": "Targówek",
-    "minutes_empty_per_morning": 27.0,
-    "share_empty_all_day": 0.022,
-    "lat": 52.280625,
-    "lon": 21.049645
-   },
-   {
-    "station_id": "2585776",
-    "morning_empty_share": 0.14933837429111532,
-    "name": "al. Niepodległości - Batorego",
-    "district": "Śródmieście",
-    "minutes_empty_per_morning": 27.0,
-    "share_empty_all_day": 0.04,
-    "lat": 52.210833,
-    "lon": 21.007851
-   },
-   {
-    "station_id": "2585785",
-    "morning_empty_share": 0.13988657844990549,
-    "name": "Żwirki i Wigury - Racławicka",
-    "district": "Ochota",
-    "minutes_empty_per_morning": 25.0,
-    "share_empty_all_day": 0.034,
-    "lat": 52.198137,
-    "lon": 20.983372
-   },
-   {
-    "station_id": "2585353",
-    "morning_empty_share": 0.1323251417769376,
-    "name": "Wolność - Bellottiego",
-    "district": "Wola",
-    "minutes_empty_per_morning": 24.0,
-    "share_empty_all_day": 0.066,
-    "lat": 52.24108,
-    "lon": 20.98316
-   },
-   {
     "station_id": "2585438",
-    "morning_empty_share": 0.1323251417769376,
+    "morning_empty_share": 0.16483516483516483,
     "name": "Emilii Plater - Złota",
     "district": "Śródmieście",
-    "minutes_empty_per_morning": 24.0,
-    "share_empty_all_day": 0.045,
+    "minutes_empty_per_morning": 30.0,
+    "share_empty_all_day": 0.046,
     "lat": 52.230978,
     "lon": 21.003676
    },
    {
-    "station_id": "2585457",
-    "morning_empty_share": 0.12098298676748583,
-    "name": "Plac Zawiszy",
+    "station_id": "2585776",
+    "morning_empty_share": 0.141287284144427,
+    "name": "al. Niepodległości - Batorego",
+    "district": "Śródmieście",
+    "minutes_empty_per_morning": 25.0,
+    "share_empty_all_day": 0.042,
+    "lat": 52.210833,
+    "lon": 21.007851
+   },
+   {
+    "station_id": "2585352",
+    "morning_empty_share": 0.13971742543171115,
+    "name": "Dzielna - Bellottiego",
+    "district": "Wola",
+    "minutes_empty_per_morning": 25.0,
+    "share_empty_all_day": 0.046,
+    "lat": 52.242888,
+    "lon": 20.980379
+   },
+   {
+    "station_id": "281045539",
+    "morning_empty_share": 0.13343799058084774,
+    "name": "Rembrandta – Miedza ",
+    "district": "Targówek",
+    "minutes_empty_per_morning": 24.0,
+    "share_empty_all_day": 0.023,
+    "lat": 52.280625,
+    "lon": 21.049645
+   },
+   {
+    "station_id": "2585353",
+    "morning_empty_share": 0.1271585557299843,
+    "name": "Wolność - Bellottiego",
+    "district": "Wola",
+    "minutes_empty_per_morning": 23.0,
+    "share_empty_all_day": 0.062,
+    "lat": 52.24108,
+    "lon": 20.98316
+   },
+   {
+    "station_id": "2585785",
+    "morning_empty_share": 0.11616954474097331,
+    "name": "Żwirki i Wigury - Racławicka",
     "district": "Ochota",
-    "minutes_empty_per_morning": 22.0,
-    "share_empty_all_day": 0.029,
-    "lat": 52.225335,
-    "lon": 20.989825
+    "minutes_empty_per_morning": 21.0,
+    "share_empty_all_day": 0.032,
+    "lat": 52.198137,
+    "lon": 20.983372
    }
   ]
  },
  "A": {
-  "n": 164632,
+  "n": 183234,
   "table": [
    {
     "minutes": 5,
-    "observed": 5190,
-    "step_ratio": 9.195183044315993,
+    "observed": 5846,
+    "step_ratio": 9.184399589462881,
     "expected_ratio": null
    },
    {
     "minutes": 10,
-    "observed": 47723,
-    "step_ratio": 0.9533767784925508,
+    "observed": 53692,
+    "step_ratio": 0.9452246144677047,
     "expected_ratio": null
    },
    {
     "minutes": 15,
-    "observed": 45498,
-    "step_ratio": 0.6160050991252363,
+    "observed": 50751,
+    "step_ratio": 0.6140568658745641,
     "expected_ratio": null
    },
    {
     "minutes": 20,
-    "observed": 28027,
-    "step_ratio": 0.4762550397830663,
-    "expected_ratio": 0.6291663248111686
+    "observed": 31164,
+    "step_ratio": 0.473815941470928,
+    "expected_ratio": 0.627708612603219
    },
    {
     "minutes": 25,
-    "observed": 13348,
-    "step_ratio": 0.4375936469883129,
-    "expected_ratio": 0.6580225981838295
+    "observed": 14766,
+    "step_ratio": 0.4324122985236354,
+    "expected_ratio": 0.6563226887850553
    },
    {
     "minutes": 30,
-    "observed": 5841,
-    "step_ratio": 0.6555384351994521,
+    "observed": 6385,
+    "step_ratio": 0.653249804228661,
     "expected_ratio": null
    },
    {
     "minutes": 35,
-    "observed": 3829,
-    "step_ratio": 0.7046226168712457,
+    "observed": 4171,
+    "step_ratio": 0.7072644449772237,
     "expected_ratio": null
    },
    {
     "minutes": 40,
-    "observed": 2698,
-    "step_ratio": 0.7883617494440326,
+    "observed": 2950,
+    "step_ratio": 0.7816949152542373,
     "expected_ratio": null
    },
    {
     "minutes": 45,
-    "observed": 2127,
-    "step_ratio": 0.846262341325811,
+    "observed": 2306,
+    "step_ratio": 0.8404163052905465,
     "expected_ratio": null
    },
    {
     "minutes": 50,
-    "observed": 1800,
-    "step_ratio": 0.8494444444444444,
+    "observed": 1938,
+    "step_ratio": 0.8560371517027864,
     "expected_ratio": null
    },
    {
     "minutes": 55,
-    "observed": 1529,
-    "step_ratio": 0.8410725964682799,
+    "observed": 1659,
+    "step_ratio": 0.8559373116335142,
     "expected_ratio": null
    },
    {
     "minutes": 60,
-    "observed": 1286,
-    "step_ratio": 0.6516329704510109,
+    "observed": 1420,
+    "step_ratio": 0.6373239436619719,
     "expected_ratio": null
    }
   ],
-  "factor": 0.7094996037207346,
+  "factor": 0.70520616493536,
   "factor_ci95": [
-   0.6879953540716383,
-   0.7300640284774916
+   0.683540214170832,
+   0.7245849122880023
   ],
-  "share_le_20": 0.7679673453520579,
-  "share_le_25": 0.849051217260314,
-  "n_days": 25
+  "share_le_20": 0.7719418885141404,
+  "share_le_25": 0.8525273693746793,
+  "n_days": 28
  },
  "B": {
-  "n_ebike": 33091,
-  "n_regular": 131541,
-  "ebike_share": 0.20099980562709557,
-  "km_median_ebike": 1.968,
-  "km_median_regular": 1.887,
+  "n_ebike": 37140,
+  "n_regular": 146094,
+  "ebike_share": 0.20269164019777988,
+  "km_median_ebike": 1.966,
+  "km_median_regular": 1.884,
   "min_median_ebike": 15.0,
   "min_median_regular": 15.0,
-  "mannwhitney_p": 5.2885988341050796e-14,
+  "mannwhitney_p": 4.4697857123471817e-17,
   "battery_median": 57.0,
-  "rented_low_share": 0.09494855004677269,
-  "parked_low_share": 0.15572514115739966,
-  "binom_p": 1.898692405271189e-224,
+  "rented_low_share": 0.09399456069267914,
+  "parked_low_share": 0.15403810023093267,
+  "binom_p": 3.920945140506305e-248,
   "km_by_battery": {
    "[0, 20)": 1.595,
-   "[20, 40)": 1.933,
-   "[40, 60)": 2.0015,
-   "[60, 80)": 2.059,
-   "[80, 101)": 2.083
+   "[20, 40)": 1.939,
+   "[40, 60)": 2.0,
+   "[60, 80)": 2.053,
+   "[80, 101)": 2.0795
   },
-  "spearman_battery_km": 0.09214200172270644,
-  "spearman_p": 2.0394517317311178e-61
+  "spearman_battery_km": 0.08985823756216424,
+  "spearman_p": 1.7187007658369997e-65
  },
  "C": {
-  "n_empty_periods": 3790,
-  "share_ended_by_truck": 0.07519788918205805,
-  "n_long": 1653,
-  "share_long_ended_by_truck": 0.12462189957652753,
-  "truck_wait_median_min": 45.0,
-  "spearman_empty_deliveries": 0.7570069948524065,
-  "spearman_p": 5.405359264811305e-65,
-  "deliveries_to_top20_share": 0.43588082901554404,
+  "n_empty_periods": 4159,
+  "share_ended_by_truck": 0.076701130079346,
+  "n_long": 1837,
+  "share_long_ended_by_truck": 0.12847033206314643,
+  "truck_wait_median_min": 50.0,
+  "spearman_empty_deliveries": 0.7729824045965804,
+  "spearman_p": 2.2828567133046653e-69,
+  "deliveries_to_top20_share": 0.43888242142025613,
   "rule": {
    "description": "Regula operatora z danych (relokacje >= 4 rowery naraz). Zapelnienie = rowery / stojaki tuz przed dowozem (cel) i tuz przed zabraniem (start). Godziny = operator_shifts.is_shift.",
-   "n_relocations": 1544,
+   "n_relocations": 1718,
    "deliver_when_fill_below": {
     "median": 0.14285714285714285,
     "q25": 0.0625,
@@ -247,10 +247,10 @@
    },
    "pickup_when_fill_above": {
     "median": 2.1,
-    "q25": 1.6428571428571428,
+    "q25": 1.6666666666666667,
     "q75": 2.6
    },
-   "share_deliveries_to_empty": 0.23963730569948186,
+   "share_deliveries_to_empty": 0.23806752037252618,
    "bikes_per_relocation": {
     "median": 4.0,
     "q25": 4.0,
@@ -260,6 +260,7 @@
    "shift_hours": {
     "roboczy": [
      0,
+     1,
      9,
      10,
      11,
@@ -290,8 +291,8 @@
     ]
    },
    "relocations_per_day": {
-    "roboczy": 62.066,
-    "wolny": 70.125
+    "roboczy": 61.0,
+    "wolny": 71.0
    },
    "caveat": "Widzimy tylko przewozy >= 4 rowerow; liczby ciezarowek nie znamy."
   }

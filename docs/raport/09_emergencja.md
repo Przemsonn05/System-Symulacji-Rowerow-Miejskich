@@ -1,6 +1,6 @@
 # 9. Emergencja
 
-*Osoba 1 (miary, dane) i Osoba 3 (eksperymenty). Wersja robocza: część „dane” na 23 pełnych dobach (23.10–15.11.2026), część „model” na jednym przebiegu (`operator_2`, ziarno 1000, 5.11). Pełne wyniki: [`emergencja.md`](../wyniki/emergencja.md), [`emergence.json`](../wyniki/emergence.json), wykres [`emergencja.png`](../wyniki/emergencja.png). Do uzupełnienia przez Osobę 3: emergencja wg strategii, przejście fazowe, efekt stadny (sekcja 9.5).*
+*Osoba 1 (miary, dane) i Osoba 3 (eksperymenty). Wersja robocza: część „dane” na 26 pełnych dobach (23.10–18.11.2026), część „model” na jednym przebiegu **silnika agentowego** (`operator_2`, ziarno 1000, 17.11, modele i kalibracja Osoby 2). Pełne wyniki: [`emergencja.md`](../wyniki/emergencja.md), [`emergence.json`](../wyniki/emergence.json), wykres [`emergencja.png`](../wyniki/emergencja.png). Do uzupełnienia przez Osobę 3: emergencja wg strategii, przejście fazowe, efekt stadny (sekcja 9.5).*
 
 ## 9.1. Co mierzymy
 
@@ -32,37 +32,41 @@ p = (1 + liczba losowań ≥ dane) / (1 + liczba losowań).
 |---|---|
 | Gini pustek | **0,67**; 10% stacji = 44% czasu pustek; 24% stacji nigdy pustych |
 | Długość pustki | mediana 25 min, p90 95 min |
-| Moran *I* (udział pustek) | **0,61** (p = 0,001); w porannym szczycie 0,20 (p = 0,001) |
-| Chwile pustoszenia | 182 na dzień |
-| W fali (z sąsiadem) | **47,7%** |
-| Fale ≥ 3 stacji | 10,3 na dzień; największa: 42 stacje |
+| Moran *I* (udział pustek) | **0,60** (p = 0,001); w porannym szczycie 0,18 (p = 0,003) |
+| Chwile pustoszenia | 176 na dzień |
+| W fali (z sąsiadem) | **47%** |
+| Fale ≥ 3 stacji | 10 na dzień; największa: 42 stacje |
 
 | Model zerowy | Statystyka | Dane | Średnia modelu | × | p |
 |---|---|---|---|---|---|
-| inny dzień | udział w fali | 0,477 | 0,425 | **1,12** | **0,001** |
-| inny dzień | średnia wielkość fali (≥ 2) | 3,56 | 3,09 | **1,15** | **0,001** |
-| inny dzień | liczba fal ≥ 3 | 235 | 219 | 1,07 | 0,14 |
-| zamiana miejsc | udział w fali | 0,477 | 0,446 | **1,07** | **0,001** |
-| zamiana miejsc | liczba fal ≥ 3 | 235 | 211 | **1,11** | **0,029** |
-| zamiana miejsc | średnia wielkość fali (≥ 2) | 3,56 | 3,50 | 1,02 | 0,34 |
+| inny dzień | udział w fali | 0,471 | 0,413 | **1,14** | **0,001** |
+| inny dzień | średnia wielkość fali (≥ 2) | 3,47 | 2,99 | **1,16** | **0,001** |
+| inny dzień | liczba fal ≥ 3 | 258 | 235 | 1,10 | 0,075 |
+| zamiana miejsc | udział w fali | 0,471 | 0,429 | **1,10** | **0,002** |
+| zamiana miejsc | liczba fal ≥ 3 | 258 | 225 | **1,15** | **0,002** |
+| zamiana miejsc | średnia wielkość fali (≥ 2) | 3,47 | 3,37 | 1,03 | 0,21 |
 
-**Wniosek.** Pustki są skupione na niewielu stacjach, leżą obok siebie i rozchodzą się falami. Fale są **większe i częstsze**, niż wynikałoby z samej pory dnia (model „inny dzień”) i z samej częstości pustek stacji (model „zamiana miejsc”). Efekt jest umiarkowany (o 7–15% ponad model zerowy), ale stabilny: na 16 dniach p wynosiło 0,015, na 23 dniach 0,001. To emergencja widoczna w prawdziwych danych.
+**Wniosek.** Pustki są skupione na niewielu stacjach, leżą obok siebie i rozchodzą się falami. Fale są **większe i częstsze**, niż wynikałoby z samej pory dnia (model „inny dzień”) i z samej częstości pustek stacji (model „zamiana miejsc”). Efekt jest umiarkowany (o 10–16% ponad model zerowy), ale stabilny: na 16 dniach p wynosiło 0,015, na 23 i 26 dniach 0,001–0,002. To emergencja widoczna w prawdziwych danych.
 
 ## 9.4. Dane vs model
 
-| Miara | Dane | Model (`operator_2`, 5.11) | Odtworzony? |
-|---|---|---|---|
-| Przejazdy / dzień roboczy | 8 637 | 8 593 | tak |
-| Godzina szczytu | 16 | 16 | tak |
-| Gini pustek | 0,67 | 0,81 | nie – za mocne skupienie |
-| Nigdy pusta | 24% | 68% | nie |
-| Pustka: mediana / p90 | 25 / 95 min | 25 / 93 min | tak |
-| Moran *I* | 0,61 | 0,23 | nie – za słabe skupiska |
-| Chwile pustoszenia / dzień | 182 | 484 | nie – za dużo |
-| W fali | 48% | 62% | częściowo |
-| Fale vs zamiana miejsc | 1,07× (p = 0,001) | 1,06× (p = 0,10) | nie |
+Model: silnik agentowy Osoby 3 (agent-stacja z sygnałem, dyspozytor Contract Net, ciężarówki) z modelami i kalibracją Osoby 2 (`processed/model/sim_params.json`: 19% klientów pustej stacji idzie do sąsiedniej do ok. 0,8 km). Przebieg `operator_2`, ziarno 1000, 17.11.
 
-Obecny silnik (bez agentów) odtwarza rytm dnia i długość pustek, ale pustoszeje za często, na zbyt wielu stacjach naraz i bez wzoru przestrzennego: jego fale nie różnią się od losowych. Oczekujemy, że poprawią to agenci-klienci (czekanie, wybór sąsiedniej stacji, aplikacja) i kalibracja na wielu metrykach naraz. Model ma jeden dzień, więc test „inny dzień” jest dla niego niedostępny – do porównania końcowego potrzebne są przebiegi z pełnymi tabelami na całym tygodniu walidacyjnym ([kontrakty, sekcja 3](../kontrakty.md)).
+| Miara | Dane (26 dni) | Model (`operator_2`, 17.11) | Odtworzony? |
+|---|---|---|---|
+| Przejazdy / dzień roboczy | 8 330 (17.11: 7 367) | 7 367 | tak (popyt dnia odtworzony) |
+| Godzina szczytu | 16 | 16 | tak |
+| Gini pustek | 0,67 | 0,84 | nie – za mocne skupienie |
+| Nigdy pusta | 24% | 72% | nie |
+| Pustka: mediana / p90 | 25 / 95 min | 30 / 123 min | częściowo – za długie |
+| Moran *I* | 0,60 | 0,04 (p = 0,17) | nie – brak skupisk |
+| Chwile pustoszenia / dzień | 176 | 340 | nie – za dużo |
+| W fali | 47% | 36% | nie – za mało |
+| Fale vs zamiana miejsc | 1,10× (p = 0,002) | 1,02× (p = 0,44) | nie |
+
+W porównaniu z silnikiem bez agentów (5.11: 484 chwile pustoszenia, Moran 0,23, 62% w fali) model agentowy pustoszeje rzadziej, a fale są mniej liczne – ale **wzór przestrzenny nie pojawił się**: puste są nieliczne stacje (72% nigdy), rozrzucone bez skupisk, a fale nie różnią się od losowych. Najbardziej prawdopodobna przyczyna: pustki w modelu zależą od stanu początkowego i popytu pojedynczych stacji, a brakuje mechanizmu, który w danych łączy sąsiadów (stali dojeżdżający z tych samych osiedli, klienci z aplikacją kierujący się na tę samą sąsiednią stację). Do sprawdzenia po dodaniu agenta-klienta (typy klientów, aplikacja z opóźnieniem) i kalibracji na wielu metrykach naraz (Osoba 2). Model ma jeden dzień, więc test „inny dzień” jest dla niego niedostępny – do porównania końcowego potrzebne są przebiegi z pełnymi tabelami na całym tygodniu walidacyjnym ([kontrakty, sekcja 3](../kontrakty.md)).
+
+**Strategie na tym samym dniu (17.11, ziarno 1000, 1 przebieg – orientacyjnie):** utracony popyt `none_1` 542, `operator_2` 469, `pressure_2` 472, `threshold_2` 366 klientów; fale ≥ 3 stacji odpowiednio 16, 13, 11, 8. Lepsza relokacja zmniejsza też fale pustek. Pełne porównanie z replikacjami: H3 (Osoba 3).
 
 ## 9.5. Emergencja w eksperymentach (Osoba 3)
 
