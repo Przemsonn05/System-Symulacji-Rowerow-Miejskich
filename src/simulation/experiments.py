@@ -16,6 +16,13 @@ from .engine import run_simulation
 
 METRICS = ["lost_demand", "lost_share", "empty_station_share", "extra_user_minutes", "extra_minutes_per_request", "truck_km"]
 STRATEGIES = ("none", "operator", "threshold")
+ALL_STRATEGIES = ("none", "operator", "threshold", "night", "predictive", "pressure", "operator_rule")
+LABELS = {"none": "Brak relokacji", "operator": "Odtworzenie operatora", "threshold": "Strategia progowa",
+          "night": "Nocna", "predictive": "Predykcyjna", "pressure": "Pole ciśnienia", "operator_rule": "Reguła operatora"}
+# brak relokacji = szary punkt odniesienia; reszta: kategoryczna paleta w stalej kolejnosci + osobny znacznik
+COLORS = {"none": "#898781", "operator": "#2a78d6", "threshold": "#eb6834", "night": "#1baf7a",
+          "predictive": "#eda100", "pressure": "#e87ba4", "operator_rule": "#008300"}
+MARKERS = {"none": "X", "operator": "o", "threshold": "s", "night": "^", "predictive": "D", "pressure": "v", "operator_rule": "P"}
 
 
 def confidence_interval(values):
@@ -37,11 +44,11 @@ def summarize(runs):
     return pd.DataFrame(rows)
 
 
-def paired_comparisons(runs):
+def paired_comparisons(runs, strategies=STRATEGIES):
     rows = []
     for trucks, group in runs.groupby("n_trucks"):
         pivot = group.pivot(index="seed", columns="scenario", values="lost_demand")
-        for a, b in combinations(STRATEGIES, 2):
+        for a, b in combinations(strategies, 2):
             if a not in pivot or b not in pivot or pivot[[a, b]].isna().any().any():
                 raise ValueError("Paired comparison has missing replications")
             difference = pivot[a].to_numpy() - pivot[b].to_numpy()
@@ -75,7 +82,8 @@ def run_one(params, strategy, trucks, seed, directory):
     return {**result.kpis, "requests_sha256": request_digest(result.requests)}
 
 
-def run_experiments(params, output_dir, replications=30, n_jobs=2, seed_start=1000, truck_counts=(1, 2, 3, 4)):
+def run_experiments(params, output_dir, replications=30, n_jobs=2, seed_start=1000, truck_counts=(1, 2, 3, 4),
+                    strategies=STRATEGIES):
     if replications < 2:
         raise ValueError("At least two replications required")
     if not truck_counts or any(int(n) != n or n < 1 for n in truck_counts) or len(set(truck_counts)) != len(truck_counts):
@@ -83,7 +91,7 @@ def run_experiments(params, output_dir, replications=30, n_jobs=2, seed_start=10
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     seeds = list(range(seed_start, seed_start + replications))
-    tasks = [(strategy, trucks, seed) for strategy in STRATEGIES for trucks in truck_counts for seed in seeds]
+    tasks = [(strategy, trucks, seed) for strategy in strategies for trucks in truck_counts for seed in seeds]
     rows = Parallel(n_jobs=n_jobs, backend="loky", verbose=10)(
         delayed(run_one)(params, strategy, trucks, seed, output_dir) for strategy, trucks, seed in tasks)
     runs = pd.DataFrame(rows)
@@ -92,13 +100,13 @@ def run_experiments(params, output_dir, replications=30, n_jobs=2, seed_start=10
     runs.to_csv(output_dir / "replications.csv", index=False)
     runs.to_parquet(output_dir / "replications.parquet", index=False)
     summary = summarize(runs)
-    paired = paired_comparisons(runs)
+    paired = paired_comparisons(runs, strategies)
     pareto = pareto_front(summary)
     summary.to_csv(output_dir / "summary.csv", index=False)
     paired.to_csv(output_dir / "paired_wilcoxon.csv", index=False)
     pareto.to_csv(output_dir / "pareto.csv", index=False)
     import importlib.metadata
-    manifest = {"replications": replications, "seeds": seeds, "strategies": list(STRATEGIES),
+    manifest = {"replications": replications, "seeds": seeds, "strategies": list(strategies),
                 "truck_counts": list(truck_counts), "duration_min": params.duration_min,
                 "start_time": params.start_time.isoformat(), "n_stations": len(params.stations),
                 "n_jobs": n_jobs, "python": sys.version, "platform": platform.platform(),
@@ -110,21 +118,20 @@ def run_experiments(params, output_dir, replications=30, n_jobs=2, seed_start=10
                     "lower_threshold", "upper_threshold", "target_fill", "bike_speed_kmh", "walk_speed_kmh", "max_walk_km",
                     "empty_retry_probability", "full_redirect_probability", "ride_sigma", "snapshot_interval_min", "congestion_multiplier"]}}
     (output_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    make_plots(summary, paired, pareto, output_dir)
+    make_plots(summary, paired, pareto, output_dir, preliminary=params.provenance.get("mode") != "calibrated_models",
+               strategies=strategies)
     write_report(runs, summary, paired, pareto, manifest, output_dir)
     return runs, summary, paired
 
 
-def make_plots(summary, paired, pareto, output_dir):
+def make_plots(summary, paired, pareto, output_dir, preliminary=True, strategies=STRATEGIES):
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({"font.size": 11, "figure.dpi": 150, "axes.spines.top": False, "axes.spines.right": False})
-    labels = {"none": "Brak relokacji", "operator": "Odtworzenie operatora", "threshold": "Strategia progowa"}
-    colors = {"none": "#7b8794", "operator": "#e29539", "threshold": "#148a8b"}
     fig, ax = plt.subplots(figsize=(10, 6))
-    for strategy in STRATEGIES:
+    for strategy in strategies:
         loss = summary[(summary.scenario == strategy) & (summary.metric == "lost_demand")].sort_values("n_trucks")
         distance = summary[(summary.scenario == strategy) & (summary.metric == "truck_km")].sort_values("n_trucks")
         if strategy == "none":
@@ -132,29 +139,30 @@ def make_plots(summary, paired, pareto, output_dir):
             distance = distance.iloc[:1]
         ax.errorbar(distance["mean"], loss["mean"], xerr=np.maximum(0, [distance["mean"] - distance.ci95_low, distance.ci95_high - distance["mean"]]),
                     yerr=np.maximum(0, [loss["mean"] - loss.ci95_low, loss.ci95_high - loss["mean"]]),
-                    fmt="o-", capsize=3, label=labels[strategy], color=colors[strategy], alpha=0.9)
+                    fmt="-", marker=MARKERS[strategy], capsize=3, label=LABELS[strategy], color=COLORS[strategy], alpha=0.9)
         for x, y, trucks in zip(distance["mean"], loss["mean"], loss.n_trucks):
             label = "1–4" if strategy == "none" else str(trucks)
             offset = (12, -18) if strategy == "operator" and trucks == 3 else (6, 7)
             ax.annotate(label, (x, y), xytext=offset, textcoords="offset points")
     front = pareto[pareto.pareto].sort_values("truck_km").drop_duplicates(["truck_km", "lost_demand"])
     ax.plot(front.truck_km, front.lost_demand, "k--", alpha=0.4, label="Front Pareto (średnie)")
-    ax.set(xlabel="Kilometry ciężarówek / dobę", ylabel="Utracony popyt / dobę", title="H3: wstępne porównanie strategii, 95% CI")
+    ax.set(xlabel="Kilometry ciężarówek / dobę", ylabel="Utracony popyt / dobę",
+           title=f"H3: {'wstępne ' if preliminary else ''}porównanie strategii, 95% CI")
     ax.legend()
     ax.grid(alpha=0.15)
     fig.tight_layout()
     fig.savefig(Path(output_dir) / "h3_pareto.png")
     plt.close(fig)
     fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    for strategy in STRATEGIES:
+    for strategy in strategies:
         for ax, metric, ylabel in zip(axes, ["lost_demand", "empty_station_share"], ["Utracony popyt / dobę", "Udział czasu pustych stacji"]):
             subset = summary[(summary.scenario == strategy) & (summary.metric == metric)].sort_values("n_trucks")
             ax.errorbar(subset.n_trucks, subset["mean"], yerr=np.maximum(0, [subset["mean"] - subset.ci95_low, subset.ci95_high - subset["mean"]]),
-                        fmt="o-", capsize=3, color=colors[strategy], label=labels[strategy])
+                        fmt="-", marker=MARKERS[strategy], capsize=3, color=COLORS[strategy], label=LABELS[strategy])
             ax.set(xlabel="Liczba ciężarówek", ylabel=ylabel, xticks=sorted(subset.n_trucks.unique()))
             ax.grid(alpha=0.15)
     axes[0].legend(fontsize=9)
-    fig.suptitle("Wyniki wstępne; modele wymagają kalibracji")
+    fig.suptitle("Wyniki wstępne; modele wymagają kalibracji" if preliminary else "Modele skalibrowane i zwalidowane (Osoba 2)")
     fig.tight_layout()
     fig.savefig(Path(output_dir) / "h3_kpis.png")
     plt.close(fig)
@@ -166,11 +174,26 @@ def write_report(runs, summary, paired, pareto, manifest, output_dir):
     mode = manifest.get("input_provenance", {}).get("mode", "unspecified")
     if mode == "preliminary_empirical":
         origin = "Dane stacji, początkowych stanów, kontekstu i przewozów operatora są rzeczywiste (pięć stanów początkowych uzupełniono przykładowo). Popyt i OD są estymatami roboczymi z wcześniejszych dni; czasy jazdy i zachowania użytkowników mają parametry przykładowe. Wyniki nie rozstrzygają jeszcze H3 dla rzeczywistego systemu."
+    elif mode == "calibrated_models":
+        origin = ("Popyt, cel podróży, czas jazdy i zachowanie klienta pochodzą z modeli Osoby 2 (`src/model`), dopasowanych do danych, "
+                  "skalibrowanych i sprawdzonych na niezależnym tygodniu (`notebooks/modele_walidacja.ipynb`). Stan początkowy stacji, "
+                  "pogoda, korki i przewozy operatora są rzeczywiste dla tej doby.")
     elif mode == "synthetic_example":
         origin = "Dane i parametry są syntetyczne. W tym przykładzie strategia operatora odtwarza przykładowy harmonogram. Wyniki służą weryfikacji działania silnika, a nie rozstrzygnięciu H3 dla rzeczywistego systemu."
     else:
         origin = "Pochodzenie danych nie zostało określone w manifeście. Przed interpretacją H3 należy sprawdzić wejścia i kalibrację parametrów."
-    lines = ["# H3 — wyniki wstępne na 5 listopada 2026", "",
+    day = pd.Timestamp(manifest["start_time"]).tz_convert("Europe/Warsaw").date()
+    params = manifest["parameters"]
+    if mode == "calibrated_models":
+        demand_note = ("- Popyt: model ujemny dwumianowy Osoby 2 (stacja × pora dnia, profil godzinowy, temperatura, korki). W każdej replikacji "
+                       "losowy mnożnik dnia (gamma, wariancja z modelu) dla każdej stacji i godziny, wspólny dla wszystkich strategii z tym "
+                       "samym ziarnem; w obrębie godziny niejednorodny Poisson (thinning Lewis–Shedler). Cel podróży: macierz OD z danych "
+                       "wygładzona modelem grawitacyjnym, osobna dla pory dnia i typu dnia. Czas jazdy: model log-normalny zależny od odległości.")
+    else:
+        demand_note = ("- Popyt: niejednorodny Poisson, intensywność stała wewnątrz godziny, thinning Lewis–Shedler. OD estymowane z wcześniejszych "
+                       "dni, z wygładzaniem odległościowym.")
+    title = "porównanie strategii" if mode == "calibrated_models" else "wyniki wstępne"
+    lines = [f"# H3 — {title}, doba {day}", "",
              f"Wykonano {len(runs)} przebiegów: 3 strategie × {len(manifest['truck_counts'])} warianty floty × {manifest['replications']} replikacji.",
              f"Każdy przebieg: {manifest['n_stations']} stacji, {manifest['duration_min'] / 60:g} h od {manifest['start_time']}.", "",
              origin, "",
@@ -194,14 +217,16 @@ def write_report(runs, summary, paired, pareto, manifest, output_dir):
               "## Metoda i ograniczenia", "",
               f"- {manifest['replications']} niezależnych ziaren {manifest['seeds'][0]}–{manifest['seeds'][-1]}; identyczne potencjalne przyjścia, cele, czasy i decyzje tych samych klientów we wszystkich wariantach danego ziarna. Zgodność potwierdzona SHA-256 tabel requests.",
               "- Przedziały t-Studenta liczone między replikacjami; nie opisują błędu estymacji modeli wejściowych. Brak okresu rozgrzewki: skończony eksperyment dobowy z obserwowanym stanem początkowym.",
-              "- Popyt: niejednorodny Poisson, intensywność stała wewnątrz godziny, thinning Lewis–Shedler. OD estymowane z wcześniejszych dni, z wygładzaniem odległościowym.",
+              demand_note,
               "- Progowa: interwencja poniżej 20% lub powyżej 80%, cel 50%, rezerwacja stacji podczas zlecenia. Operator: kolejka rzeczywistych zleceń z dnia eksperymentu, bez teleportacji rowerów i bez przekraczania pojemności pojazdu.",
               "- Operator jest odtworzeniem ex post: godziny i kierunki są znane z danych. Nie zakładamy znajomości faktycznych tras ani identyfikatorów ciężarówek. Różna liczba pojazdów oznacza różne opóźnienia wykonania tych samych zleceń.",
-              "- Miękka pojemność: zwrot ponad liczbę stojaków jest dozwolony. Domyślnie brak przekierowania z przepełnionej stacji. Alternatywne reguły są parametryzowane.",
+              f"- Klient przy pustej stacji idzie do sąsiedniej (do {params['max_walk_km']:.2f} km) z prawdopodobieństwem {params['empty_retry_probability']:.2f}, inaczej rezygnuje. "
+              f"Miękka pojemność: zwrot ponad liczbę stojaków jest dozwolony; przy pełnej stacji klient odjeżdża do sąsiedniej z prawdopodobieństwem {params['full_redirect_probability']:.2f}.",
               "- Utracony popyt to klienci, którzy zakończyli próbę bez roweru. Pending users, rowery w drodze i na ciężarówkach na końcu doby są raportowane osobno; nie wymuszamy zwrotów po horyzoncie.",
               "- Czas pustych stacji jest całkowany dokładnie pomiędzy zmianami stanu. Dodatkowy czas obejmuje chodzenie i przekierowanie zrealizowane do horyzontu; kilometry obejmują pusty przejazd i załadowaną jazdę, także część odcinka do końca doby.",
               "- Nocna, predykcyjna, H5b, scenariusze co-jeśli oraz Morris/tornado są poza jutrzejszym kamieniem milowym.", "",
               "## Pliki do przekazania", "",
               "`replications.csv`, `summary.csv`, `paired_wilcoxon.csv`, `pareto.csv`, `manifest.json`, wykresy oraz `runs/<strategia>_<flota>/seed_<ziarno>/`: events, station_timeseries, trips, requests, fleet_timeseries, station_kpis, stations, context i kpis.json.", "",
-              "Pełne założenia danych: `../inputs/metadata.json`. Opis modelu i instrukcja: `../../docs/simulation.md`.", ""]
+              "Pełne założenia danych: `metadata.json` w katalogu wejść (`--inputs`). Opis modelu i instrukcja: `docs/simulation.md`"
+              + (", modele Osoby 2: `src/model/`, `notebooks/modele_walidacja.ipynb`." if mode == "calibrated_models" else "."), ""]
     (Path(output_dir) / "REPORT.md").write_text("\n".join(lines), encoding="utf-8")

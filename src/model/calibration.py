@@ -15,12 +15,13 @@ from joblib import Parallel, delayed
 from ..data.config import ROOT, TZ
 from ..simulation.engine import Simulation, SimulationParams
 from ..simulation.network import build_network
-from .data import load
+from .data import _straight_km, load
 from .od import count_matrix
 
-# Parametry klienta kalibrowane Optuna (nazwy jak w SimulationParams).
-SPACE = {"empty_retry_probability": (0.0, 1.0), "max_walk_km": (0.1, 1.5), "full_redirect_probability": (0.0, 1.0)}
-DEFAULT = {"empty_retry_probability": 0.65, "max_walk_km": 0.6, "full_redirect_probability": 0.0}
+# Parametry klienta kalibrowane Optuna (nazwy jak w SimulationParams). Zachowanie przy pustej stacji
+# (empty_retry_probability, max_walk_km) jest mierzone w danych (spillover.py), a nie kalibrowane.
+SPACE = {"full_redirect_probability": (0.0, 1.0)}
+DEFAULT = {"full_redirect_probability": 0.0}
 # Operator ma jednoczesnie w drodze zwykle ok. 10 grup rowerow (max 13), wiec tyle ciezarowek
 # wystarcza, zeby odtworzyc jego przewozy bez sztucznych opoznien.
 OPERATOR_TRUCKS = 10
@@ -56,6 +57,22 @@ class HourlyRates:
         return self.table[context["time"]]
 
 
+class SeededDemand:
+    """Popyt z rozrzutem miedzy dniami: for_seed(ziarno) daje lambda pomnozona przez losowy mnoznik gamma
+    (srednia 1, wariancja alpha z regresji NB) dla kazdej stacji i godziny. Mnoznik zalezy tylko od ziarna."""
+
+    def __init__(self, hours, lam, alpha):
+        self.hours, self.lam, self.alpha = hours, lam, alpha
+
+    def for_seed(self, seed):
+        rng = np.random.default_rng([seed, 1])
+        return HourlyRates(self.hours, self.lam * rng.gamma(1.0 / self.alpha, self.alpha, size=self.lam.shape))
+
+    def rates(self, stations, context):
+        """Srednia lambda (bez rozrzutu), gdy silnik nie wywoluje for_seed."""
+        return self.lam[self.hours.get_loc(context["time"])]
+
+
 @dataclass
 class Day:
     start: pd.Timestamp
@@ -78,6 +95,11 @@ class Setup:
         self.network = build_network(self.stations, ROOT / "data/static/station_network_distance.parquet",
                                      ROOT / "data/static/osm/graph_drive.graphml")
         self.demand, self.od, self.duration, self.obs = demand, od, duration, obs
+        # symulacja mierzy dojscie do sasiedniej stacji odlegloscia po drogach rowerowych, a pomiar
+        # w danych linia prosta: typowy stosunek dla bliskich par (do 1 km) przelicza jedno na drugie
+        straight = _straight_km(self.ids, stations)
+        near = (straight > 0.05) & (straight < 1.0)
+        self.walk_scale = float(np.median(self.network.bike_km[near] / straight[near]))
         self._days = {}
 
     def day(self, day):
@@ -105,11 +127,8 @@ class Setup:
 def run_day(setup_parts, d, agent, seed):
     """Jedna symulowana doba w silniku Osoby 3; zwraca tablice do porownania z rzeczywistoscia."""
     ids, stations, network, od, duration, alpha = setup_parts
-    rng = np.random.default_rng([seed, 1])
-    # mnoznik gamma o wariancji alpha: zachowuje nadmierny rozrzut popytu z regresji NB
-    lam = d.lam * rng.gamma(1.0 / alpha, alpha, size=d.lam.shape)
     params = SimulationParams(
-        stations=stations.assign(initial_bikes=d.init), network=network, demand_model=HourlyRates(d.hours, lam),
+        stations=stations.assign(initial_bikes=d.init), network=network, demand_model=SeededDemand(d.hours, d.lam, alpha).for_seed(seed),
         od_matrix=od, context_hourly=d.ctx, rebalancing_observed=d.rebalancing, duration_min=d.minutes,
         start_time=d.start, n_trucks=OPERATOR_TRUCKS, ride_time_model=duration, ride_sigma=duration.sigma,
         audit_every_event=False, **agent)
@@ -178,10 +197,11 @@ def objective(m, s):
     return m["rmse_occ"] / s["occ_obs"].std() + 0.5 * m["rmse_trips_per_h"] / s["dep_obs"].sum(axis=1).mean()
 
 
-def calibrate(setup, days, n_trials=60, n_reps=3, log=print):
-    """Optuna (TPE). Wszystkie proby maja te same ziarna, wiec roznice wynikaja z parametrow."""
+def calibrate(setup, days, fixed, n_trials=20, n_reps=3, log=print):
+    """Optuna (TPE) dla SPACE; fixed = parametry klienta ustalone z pomiaru. Wszystkie proby maja te same
+    ziarna, wiec roznice wynikaja z parametrow."""
     def run(trial):
-        agent = {k: trial.suggest_float(k, a, b) for k, (a, b) in SPACE.items()}
+        agent = fixed | {k: trial.suggest_float(k, a, b) for k, (a, b) in SPACE.items()}
         s = simulate(setup, agent, days, n_reps)
         m = metrics(s)
         for k, v in m.items():
@@ -193,7 +213,7 @@ def calibrate(setup, days, n_trials=60, n_reps=3, log=print):
     study.enqueue_trial(DEFAULT)
     study.optimize(run, n_trials=n_trials, callbacks=[
         lambda st, t: log(f"  proba {t.number:3d}: cel {t.value:.4f} (najlepszy {st.best_value:.4f})") if t.number % 10 == 0 else None])
-    return study.best_params, study
+    return fixed | study.best_params, study
 
 
 def _at(frame, index, shift):

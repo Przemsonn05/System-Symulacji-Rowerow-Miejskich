@@ -157,6 +157,10 @@ class Simulation:
         demand = params.demand_model
         if demand is None:
             demand = ExampleDemand(np.full(len(self.ids), 1.0))
+        # popyt zalezny od ziarna (losowy poziom dnia z modelu Osoby 2): ten sam dla wszystkich strategii
+        # z danym ziarnem, wiec wspolne liczby losowe sa zachowane
+        if hasattr(demand, "for_seed"):
+            demand = demand.for_seed(self.seed)
         self.requests = generate_requests(params.stations, params.network, params, demand, params.od_matrix,
                                           params.context_hourly, seed) if requests is None else requests.copy()
         if scenario == "operator" and params.rebalancing_observed is None:
@@ -186,6 +190,10 @@ class Simulation:
             )
             for i, sid in enumerate(self.ids)
         ]
+        # agent-stacja widzi te same rowery co silnik; z wlasna, nigdy nieaktualizowana lista prognoza zawsze
+        # wynosila 0, wiec strategie predictive i pressure nie znajdowaly dawcow i nie robily przewozow
+        for agent, bikes in zip(self.station_agents, self.inventory):
+            agent.inventory = bikes
 
         self.truck_agents = [
             TruckAgent(

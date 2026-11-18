@@ -11,6 +11,17 @@ from .network import StationNetwork, build_network
 
 
 ROOT = Path(__file__).resolve().parents[2]
+MODEL_FILES = ["demand_model.pkl", "od_model.pkl", "duration_model.pkl", "sim_params.json"]
+
+
+def load_person2_models(processed):
+    """Modele Osoby 2 z processed/model/ (python -m src.model.pipeline) albo None, gdy ich brak."""
+    directory = Path(processed) / "model"
+    if not all((directory / name).exists() for name in MODEL_FILES):
+        return None
+    models = {name: pickle.loads((directory / f"{name}_model.pkl").read_bytes()) for name in ("demand", "od", "duration")}
+    models["sim"] = json.loads((directory / "sim_params.json").read_text(encoding="utf-8"))
+    return models
 
 
 def example_inputs(n_stations=348, seed=2026):
@@ -31,7 +42,9 @@ def example_inputs(n_stations=348, seed=2026):
                             rebalancing_observed=pd.DataFrame(schedule))
 
 
-def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, use_osm=True):
+def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, use_osm=True, empirical=False):
+    """Wejscia na jedna dobe. Domyslnie z modeli Osoby 2 (processed/model/), jesli sa; empirical=True albo
+    ich brak: robocze przyblizenia z historii (popyt stacja x godzina, OD z przejazdow, przykladowe zachowania)."""
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     processed = Path(processed) if processed else ROOT / "processed"
@@ -45,6 +58,10 @@ def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, 
                 raise FileNotFoundError(f"Missing {name}.parquet; first run python -X utf8 -m src.data.build --no-features")
         stations = pd.read_parquet(processed / "stations.parquet").sort_values("station_id").reset_index(drop=True)
         stations["station_id"] = stations.station_id.astype(str)
+        models = None if empirical else load_person2_models(processed)
+        if models is not None:
+            # stacje modeli Osoby 2 (aktywne w pomiarach), w kolejnosci wierszy macierzy OD
+            stations = stations.set_index("station_id").loc[models["od"].station_ids].reset_index()
         start = pd.Timestamp(day, tz="Europe/Warsaw").tz_convert("UTC")
         stop = start + pd.Timedelta(days=1)
         observed = pd.read_parquet(processed / "observed_timeseries.parquet")
@@ -70,6 +87,8 @@ def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, 
         context = context[(context.time >= start) & (context.time < stop)]
         reb = pd.read_parquet(processed / "rebalancing_observed.parquet")
         reb = reb[(reb.t_departure >= start) & (reb.t_departure < stop)].copy()
+        if models is not None:
+            reb = reb[reb.from_station.isin(stations.station_id) & reb.to_station.isin(stations.station_id)]
         trips = pd.read_parquet(processed / "trips.parquet")
         trips = trips[(trips.type == "user") & (trips.t_departure < start) & ~trips.is_flicker & ~trips.too_fast & ~trips.is_long]
         od_counts = pd.crosstab(trips.from_station, trips.to_station).reindex(index=stations.station_id, columns=stations.station_id, fill_value=0).to_numpy(float)
@@ -82,6 +101,8 @@ def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, 
         od /= od.sum(axis=1, keepdims=True)
         params = SimulationParams(stations=stations, network=network, demand_model=EmpiricalDemand(rates),
                                   od_matrix=od, context_hourly=context, rebalancing_observed=reb, start_time=start)
+        if models is not None:
+            return save_inputs(output_dir, *model_inputs(models, stations, network, context, reb, start, stop, day, initial))
         metadata = {"mode": "preliminary_empirical", "day": day,
                     "warning": "Demand and OD are preliminary estimates from earlier observations; not calibrated or validated models from Person 2.",
                     "n_stations": len(stations), "inactive_historical_stations": inactive,
@@ -95,12 +116,53 @@ def prepare_inputs(output_dir, day="2026-11-03", processed=None, example=False, 
                     "operator": "Actual observed transfers on selected day, queued by departure, physically executed by finite fleet; late jobs remain late.",
                     "operator_jobs": len(reb), "network": network.source,
                     "interpretation": "Operator replay uses that day's observations ex post; this is not a deployable online policy or final evidence for H3."}
+    return save_inputs(output_dir, params, metadata)
+
+
+def model_inputs(models, stations, network, context, reb, start, stop, day, initial):
+    """Wejscia z modeli Osoby 2: popyt z warunkow tej doby (z rozrzutem miedzy ziarnami), OD zalezne od
+    pory dnia, model czasu jazdy, zachowanie klienta z sim_params.json."""
+    from ..model.calibration import SeededDemand
+    from ..model.data import context_filled
+
+    ctx = context_filled()
+    ctx = ctx[(ctx.time >= start) & (ctx.time < stop)].reset_index(drop=True)
+    ids = stations.station_id.tolist()
+    demand, duration, agent = models["demand"], models["duration"], models["sim"]["agent"]
+    seeded = SeededDemand(pd.DatetimeIndex(ctx.time), demand.rate(ids, ctx), demand.alpha)
+    params = SimulationParams(stations=stations, network=network, demand_model=seeded, od_matrix=models["od"],
+                              context_hourly=context, rebalancing_observed=reb, start_time=start,
+                              ride_time_model=duration, ride_sigma=duration.sigma, **agent)
+    metadata = {"mode": "calibrated_models", "day": day,
+                "models": "processed/model/ (Osoba 2: python -m src.model.pipeline)",
+                "models_fit_days": models["sim"].get("fit_days"),
+                "n_stations": len(stations), "agent": agent, "ride_sigma": duration.sigma,
+                "initial_inventory_imputed_stations": int(stations.station_id.map(initial).isna().sum()),
+                "initialization": "Last non-spike observation at/before start, max age 15 minutes; otherwise historical mean.",
+                "demand": f"Model ujemny dwumianowy Osoby 2 z warunkami tej doby; mnoznik gamma (wariancja {demand.alpha:.3f}) dla stacji x godziny na kazde ziarno.",
+                "od": "Macierz OD z danych wygladzona modelem grawitacyjnym, osobna dla pory dnia i typu dnia (Osoba 2).",
+                "ride_time": "Model log-normalny zalezny od odleglosci (Osoba 2).",
+                "agent_rules": "Pusta stacja: zmierzone w danych; pelna stacja: kalibracja (sim_params.json).",
+                "truck_rules": "20 bikes; loading and unloading 15 seconds/bike; 25 km/h free-flow; congestion is 1-current/free-flow.",
+                "operator": "Actual observed transfers on selected day, queued by departure, physically executed by finite fleet; late jobs remain late.",
+                "operator_jobs": len(reb), "network": network.source,
+                "interpretation": "Operator replay uses that day's observations ex post; this is not a deployable online policy."}
+    return params, metadata
+
+
+def save_inputs(output_dir, params, metadata):
+    for stale in ("od_model.pkl", "od_matrix.npy", "ride_time_model.pkl"):  # pozostalosci po innym trybie
+        (output_dir / stale).unlink(missing_ok=True)
     params.stations.to_parquet(output_dir / "stations.parquet", index=False)
     params.network.save(output_dir / "network", params.stations)
     with (output_dir / "demand_model.pkl").open("wb") as handle:
         pickle.dump(params.demand_model, handle)
-    if params.od_matrix is not None:
+    if hasattr(params.od_matrix, "matrix"):  # OD zalezne od pory dnia (model Osoby 2)
+        (output_dir / "od_model.pkl").write_bytes(pickle.dumps(params.od_matrix))
+    elif params.od_matrix is not None:
         np.save(output_dir / "od_matrix.npy", params.od_matrix)
+    if params.ride_time_model is not None:
+        (output_dir / "ride_time_model.pkl").write_bytes(pickle.dumps(params.ride_time_model))
     if params.context_hourly is not None:
         params.context_hourly.reset_index().to_parquet(output_dir / "context_hourly.parquet", index=False)
     params.rebalancing_observed.to_parquet(output_dir / "rebalancing_observed.parquet", index=False)
@@ -116,10 +178,17 @@ def load_inputs(directory, **overrides):
     def table(name):
         path = directory / f"{name}.parquet"
         return pd.read_parquet(path) if path.exists() else None
+    def pickled(name):
+        path = directory / name
+        return pickle.loads(path.read_bytes()) if path.exists() else None
+    od = pickled("od_model.pkl")
+    if od is None and (directory / "od_matrix.npy").exists():
+        od = np.load(directory / "od_matrix.npy", allow_pickle=False)
     params = dict(stations=table("stations"), network=StationNetwork.load(directory / "network"),
-                  demand_model=load_demand(directory / "demand_model.pkl"),
-                  od_matrix=np.load(directory / "od_matrix.npy", allow_pickle=False) if (directory / "od_matrix.npy").exists() else None,
+                  demand_model=load_demand(directory / "demand_model.pkl"), od_matrix=od,
                   context_hourly=table("context_hourly"), rebalancing_observed=table("rebalancing_observed"),
                   start_time=metadata["start_time"], provenance=metadata)
+    if (directory / "ride_time_model.pkl").exists():  # modele Osoby 2: czas jazdy i zachowanie klienta
+        params.update(ride_time_model=pickled("ride_time_model.pkl"), ride_sigma=metadata["ride_sigma"], **metadata["agent"])
     params.update(overrides)
     return SimulationParams(**params)
