@@ -6,6 +6,7 @@
 ---
 
 ## 📑 Spis Treści
+0. [Wyraźny Podział: Wkład Własny (Issue #7) vs Stan Wyjściowy](#0-wyraźny-podział-wkład-własny-issue-7-vs-stan-wyjściowy)
 1. [Wprowadzenie i Koncepcja Architektury Agentowej](#1-wprowadzenie-i-koncepcja-architektury-agentowej)
 2. [Matematyczny Model Agenta-Stacji i Histerezy Sygnału](#2-matematyczny-model-agenta-stacji-i-histerezy-sygnału)
 3. [Dyfuzja Pola Ciśnienia na Grafie Stacji](#3-dyfuzja-pola-ciśnienia-na-grafie-stacji)
@@ -15,6 +16,26 @@
 7. [Metodyka Weryfikacji, Statystyka i Model Analityczny M/M/2/2](#7-metodyka-weryfikacji-statystyka-i-model-analityczny-mm22)
 8. [Zgodność Kontraktów Danych i Eksport do Wizualizacji 3D](#8-zgodność-kontraktów-danych-i-eksport-do-wizualizacji-3d)
 9. [Podsumowanie Wyników i Stan Wdrożenia](#9-podsumowanie-wyników-i-stan-wdrożenia)
+
+---
+
+## 0. Wyraźny Podział: Wkład Własny (Issue #7) vs Stan Wyjściowy
+
+Dla pełnej przejrzystości, poniższa tabela zestawia elementy, które **zostały wytworzone przez nas od zera w ramach realizacji Issue #7**, z elementami bazowymi przygotowanymi wcześniej przez zespół (Osoba 1 i 2):
+
+| Obszar | Co już było w repozytorium (stan bazowy) | Co zrobiliśmy MY w ramach Issue #7 (wkład własny) |
+|---|---|---|
+| **Architektura agentowa** | Brak modułu agentów (istniał tylko scentralizowany silnik DES w jednym pliku `engine.py`). | **Stworzenie od zera całego pakietu `src/agents/`**: klasa bazowa `Agent`, `AgentMessage`, dedykowane widoki (`StationView`, `AppView`, `TruckView`, `DispatcherView`), `StationAgent`, `TruckAgent`, `DispatcherAgent`, `PressureField`. |
+| **Komunikacja i licytacja** | Brak mechanizmu przetargu i negocjacji. | **Implementacja protokołu Contract Net**: zapytanie ofertowe (`task_announced`), kalkulacja kosztów i składanie ofert (`bid`), przydział najszybszemu autu (`task_awarded`), deterministyczne rozstrzyganie remisów i rezerwacja stacji. |
+| **Zachowanie stacji** | Prosty stan liczbowy rowerów. | **Agent-stacja z prognozowaniem $\widehat{B}(t+H)$**, przełącznik wyroczni `oracle=True/False`, dwuprogowa histereza sygnału bez migotania oraz kolejka FIFO klientów oczekujących z limitem cierpliwości. |
+| **Topologia i przestrzeń** | Prosta macierz odległości drogowej. | **Dynamiczne pole ciśnienia na grafie stacji (`PressureField`)**: rzadka macierz CSR, jądro wykładnicze wag, wielokrokowe iteracyjne równanie dyfuzji ciepła $p \leftarrow (1-\alpha)s + \alpha W p$. |
+| **Strategie relokacji** | Tylko 3 podstawowe: `none`, `operator`, `threshold`. | **Dodanie 4 nowych zaawansowanych strategii (łącznie 7)**: nocna z celem porannym (`night`), predykcyjna wyprzedzająca (`predictive`), sterowana gradientem ciśnienia (`pressure`) oraz dopasowana do operatora (`operator_rule`). |
+| **Silnik symulacji** | Symulacja jednodobowa, stały z góry popyt. | **Rozszerzenie `Simulation` w `engine.py`**: pełna integracja z agentami, symulacja wielodniowa (`days=N`) z ciągłością inwentarza przez północ, obsługa opóźnionej aplikacji mobilnej, generowanie tabeli `user_outcomes.parquet` oraz kolumny `pressure`. |
+| **Eksperymenty i emergencja** | Tylko wstępny skrypt H3 dla 3 starych strategii. | **Stworzenie od zera modułu `src/simulation/agent_experiments.py`**: eksperymenty H3 (7 strategii), H5b (korki TomTom), przejście fazowe (załamanie floty 2000–5000 rowerów), efekt stadny opóźnionej aplikacji, zasięg ciśnienia, scenariusze Co-Jeśli, analiza Tornado i Morrisa (SALib). |
+| **Weryfikacja i testy** | 39 testów bazowych w `test_simulation.py`. | **Stworzenie 20 nowych testów w `tests/test_agents.py`**: testy Contract Net, histerezy bez migotania, dyfuzji $\alpha=0$, symulacji wielodniowej, kolejek FIFO, ograniczeń zmian aut i wszystkich nowych strategii. |
+| **Dokumentacja** | Podstawowy plik `docs/simulation.md`. | **Opracowanie protokołu `docs/ODD.md` (standard ODD+D)**, rozszerzenie `docs/simulation.md` o diagram sekwencji Mermaid oraz niniejsza szczegółowa `PREZENTACJA.md`. |
+
+---
 
 ---
 
