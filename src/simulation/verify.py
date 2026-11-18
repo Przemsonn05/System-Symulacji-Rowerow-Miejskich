@@ -12,7 +12,7 @@ def verify_experiment(directory):
     directory = Path(directory)
     runs = pd.read_parquet(directory / "replications.parquet")
     manifest = json.loads((directory / "manifest.json").read_text(encoding="utf-8"))
-    expected = {(strategy, trucks, seed) for strategy in STRATEGIES
+    expected = {(strategy, trucks, seed) for strategy in manifest.get("strategies", STRATEGIES)
                 for trucks in manifest["truck_counts"] for seed in manifest["seeds"]}
     actual = set(zip(runs.scenario, runs.n_trucks, runs.seed))
     if actual != expected or len(runs) != len(expected):

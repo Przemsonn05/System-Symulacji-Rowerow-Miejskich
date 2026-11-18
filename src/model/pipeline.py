@@ -7,7 +7,7 @@
 
 Wynik (processed/model/):
   demand_model.pkl, od_model.pkl, duration_model.pkl   modele dopasowane na wszystkich dniach (dla Osoby 3)
-  sim_params.json                                      skalibrowane parametry klienta (nazwy jak w SimulationParams)
+  sim_params.json                                      parametry klienta: zmierzone (pusta stacja) i skalibrowane (pelna)
   results.pkl                                          wszystko do notebooka notebooks/modele_walidacja.ipynb
 """
 
@@ -26,7 +26,7 @@ for _var in ("OPENBLAS_NUM_THREADS", "OMP_NUM_THREADS", "MKL_NUM_THREADS"):
 
 import numpy as np  # noqa: E402
 
-from . import hypotheses
+from . import hypotheses, spillover
 from .calibration import OPERATOR_TRUCKS, Setup, baselines, calibrate, load_observed, metrics, od_cpc, simulate
 from .data import CALIB, OUT, VALID, context_filled, days, load, save, sim_station_ids, user_trips
 from .demand import build_panel, fit_demand
@@ -61,7 +61,7 @@ def main():
     ap.add_argument("--quick", action="store_true", help="szybki test lancucha")
     ap.add_argument("--calib", nargs=2, type=dt.date.fromisoformat, default=CALIB)
     ap.add_argument("--valid", nargs=2, type=dt.date.fromisoformat, default=VALID)
-    ap.add_argument("--trials", type=int, default=60)
+    ap.add_argument("--trials", type=int, default=20)
     ap.add_argument("--reps", type=int, default=3, help="replikacje na probe kalibracji")
     ap.add_argument("--valid-reps", type=int, default=20)
     a = ap.parse_args()
@@ -88,11 +88,21 @@ def main():
     R["duration"] = {"params": du.params(), "check": du.check}
     log(f"   popyt: alpha={dm.alpha:.3f}; OD: beta={om.beta:.3f}/km; czas jazdy sigma={du.sigma:.3f}")
 
+    log("   przechodzenie klientow do sasiednich stacji (dni kalibracyjne)...")
+    sp = spillover.run(dm, calib_days, stations, ids, n_boot=50 if a.quick else 300)
+    R["spillover"] = sp
+    log(f"   {sp['share']:.0%} klientow pustej stacji wypozycza u sasiada do {sp['walk_m']} m "
+        f"(95% CI {sp['share_ci'][0]:.0%}-{sp['share_ci'][1]:.0%})")
+
     log("   siec drog i dane dni dla symulacji (src/simulation)...")
     setup = Setup(dm, om, du, stations, load_observed(ids, ctx))
+    # zachowanie przy pustej stacji z pomiaru; udzial udanych przejsc to dolne przyblizenie
+    # prawdopodobienstwa proby, bo czesc probujacych trafia na pustego sasiada
+    fixed = {"empty_retry_probability": float(np.clip(sp["share"], 0, 1)),
+             "max_walk_km": sp["walk_m"] / 1000 * setup.walk_scale}
     log(f"2/4 Kalibracja: {a.trials} prob x {a.reps} replikacje x {len(calib_days)} dni...")
-    best, study = calibrate(setup, calib_days, n_trials=a.trials, n_reps=a.reps, log=log)
-    R["calibration"] = {"params": best, "trials": study.trials_dataframe(), "n_reps": a.reps}
+    best, study = calibrate(setup, calib_days, fixed, n_trials=a.trials, n_reps=a.reps, log=log)
+    R["calibration"] = {"params": best, "fixed": list(fixed), "trials": study.trials_dataframe(), "n_reps": a.reps}
     log(f"   najlepsze: {json.dumps({k: round(v, 3) for k, v in best.items()})}")
 
     log(f"3/4 Walidacja na {valid_days[0]} – {valid_days[-1]} ({a.valid_reps} replikacji)...")

@@ -214,12 +214,13 @@ user_trips = trips[(trips["type"] == "user") & ~trips["is_flicker"] & ~trips["to
 
 ### Modele zachowań (`src/model/`, Osoba 2)
 
-`python -m src.model.pipeline` buduje modele, kalibruje je i sprawdza na dniach, których nie widziały (domyślnie kalibracja 23–29.10, walidacja 30.10–4.11; zmiana: `--calib OD DO --valid OD DO`). Wyniki: `processed/model/`, opis z wykresami: [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb).
+`python -m src.model.pipeline` buduje modele, kalibruje je i sprawdza na dniach, których nie widziały (domyślnie kalibracja 23.10–10.11, walidacja 11–17.11; zmiana: `--calib OD DO --valid OD DO`). Wyniki: `processed/model/`, opis z wykresami: [`modele_walidacja.ipynb`](notebooks/modele_walidacja.ipynb).
 
 - **Popyt** (`demand.py`): ilu chętnych przychodzi na każdą stację w każdej godzinie. Uwzględnia porę dnia, typ dnia, temperaturę i korki; godziny pustej stacji nie zaniżają popytu. Błąd sumy wypożyczeń: +6%, korelacja godzina po godzinie 0,92.
 - **Cel podróży** (`od.py`): dokąd jadą; z danych, wygładzone modelem grawitacyjnym (każdy km zmniejsza szansę wyboru celu 2,2 raza).
 - **Czas jazdy** (`duration.py`): zależy od odległości; e-rowerem o 15% krócej.
-- **Kalibracja i walidacja** (`calibration.py`): Optuna dobiera zachowanie klienta przy pustej / pełnej stacji; walidacja dzień po dniu w silniku symulacji, z modelami bazowymi.
+- **Interakcja przez puste stacje** (`spillover.py`): pomiar w danych, ilu klientów pustej stacji wypożycza rower na sąsiedniej i jak daleko idą (ok. 20%, do ok. 600 m). Te wartości trafiają wprost do symulacji jako zachowanie klienta przy pustej stacji.
+- **Kalibracja i walidacja** (`calibration.py`): Optuna dobiera tylko zachowanie klienta przy pełnej stacji (tego nie widać w danych); walidacja dzień po dniu w silniku symulacji, z modelami bazowymi.
 - **Hipotezy H1, H4, H5a** (`hypotheses.py`).
 
 ### Silnik symulacji (`src/simulation/`, Osoba 3)

@@ -11,8 +11,8 @@ from ..data.config import PROCESSED, STATIC, TZ
 OUT = PROCESSED / "model"
 
 # Podzial czasowy (daty lokalne, wlacznie). Kalibracja na wczesniejszych dniach, test na pozniejszych.
-CALIB = (dt.date(2026, 10, 23), dt.date(2026, 10, 29))
-VALID = (dt.date(2026, 10, 30), dt.date(2026, 11, 4))
+CALIB = (dt.date(2026, 10, 23), dt.date(2026, 11, 10))
+VALID = (dt.date(2026, 11, 11), dt.date(2026, 11, 17))
 
 # Bloki pory dnia: wlasny poziom popytu stacji w kazdym bloku i osobne macierze OD.
 BLOCKS = [("noc", 0, 6), ("rano", 6, 10), ("poludnie", 10, 15), ("popoludnie", 15, 19), ("wieczor", 19, 24)]
