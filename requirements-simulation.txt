@@ -13,3 +13,4 @@ requests>=2.31
 osmnx>=2.0,<3
 osmium>=4.0,<5
 scikit-learn>=1.4,<2
+SALib>=1.5
